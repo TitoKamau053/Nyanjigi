@@ -1,0 +1,6 @@
+.env
+*.md
+.txt
+/tests
+/node_modules
+/dist
