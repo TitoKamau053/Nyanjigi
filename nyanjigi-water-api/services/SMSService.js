@@ -9,7 +9,7 @@ class SMSService {
   constructor() {
     // Temporarily hardcode sandbox credentials for testing
     if (process.env.NODE_ENV === 'development') {
-      this.apiKey = 'atsk_8ecb9e258dd83bb5d347c663d73379769ee6dee2126f0877252aee1b9e75fcb0d0a23c4a';
+      this.apiKey = '#############';
       this.username = 'sandbox';
       this.sandbox = true;
     } else {
