@@ -192,7 +192,7 @@ const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Graceful shutdown handling
-const server = app.listen(PORT, async () => {
+const server = app.listen(PORT,'0.0.0.0', async () => {
   console.log('🚀 Nyanjigi Waters Management System API');
   console.log('='.repeat(50));
   console.log(`📡 Server running on port ${PORT}`);
