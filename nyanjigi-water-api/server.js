@@ -33,12 +33,12 @@ app.use(helmet({
 // CORS configuration
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://yourdomain.com', 'https://admin.yourdomain.com']
+    ? ['https://nyanjigi.online', 'https://www.nyanjigi.online', 'https://api.nyanjigi.online']
     : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true,
-  maxAge: 86400 // 24 hours
+  maxAge: 86400
 };
 app.use(cors(corsOptions));
 
