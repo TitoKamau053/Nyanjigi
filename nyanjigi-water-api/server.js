@@ -27,7 +27,8 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
     },
   },
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  hidePoweredBy: true
 }));
 
 // CORS configuration
