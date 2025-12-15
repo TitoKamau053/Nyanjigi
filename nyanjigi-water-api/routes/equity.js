@@ -6,12 +6,41 @@ const { body, param, query } = require('express-validator');
 
 const router = express.Router();
 
+const EQUITY_WHITELIST = [
+  '196.216.242.224',
+  '196.216.242.223',
+  '196.216.242.163',
+  '196.216.242.171',
+  '20.50.237.39',
+  '20.50.237.229',
+  // '127.0.0.1' 
+];
+
+const checkWhitelist = (req, res, next) => {
+  // Get client IP (handling IPv6 mapping if present)
+  let clientIp = req.ip || req.connection.remoteAddress;
+  if (clientIp.substr(0, 7) === "::ffff:") {
+    clientIp = clientIp.substr(7);
+  }
+
+  // Check if IP is allowed
+  if (!EQUITY_WHITELIST.includes(clientIp)) {
+    console.warn(`[SECURITY] Blocked unauthorized Equity access from IP: ${clientIp}`);
+    return res.status(403).json({
+      success: false,
+      message: 'Access Forbidden: Unauthorized Source'
+    });
+  }
+  next();
+};
+
 /**
  * PUBLIC ENDPOINTS (Called by Equity Bank)
  */
 
 // Customer validation endpoint
 router.post('/validate-customer',
+  checkWhitelist,
   [
     body('member_number').trim().notEmpty().withMessage('Member number is required'),
     body('phone').optional().matches(/^(\+254|254|0)[17]\d{8}$/).withMessage('Valid phone number required')
@@ -22,6 +51,7 @@ router.post('/validate-customer',
 
 // Payment callback endpoint
 router.post('/callback',
+  checkWhitelist, 
   [
     body('transaction_id').trim().notEmpty().withMessage('Transaction ID is required'),
     body('member_number').trim().notEmpty().withMessage('Member number is required'),
