@@ -13,7 +13,7 @@ const EQUITY_WHITELIST = [
   '196.216.242.171',
   '20.50.237.39',
   '20.50.237.229',
-  // '127.0.0.1' 
+  '127.0.0.1' 
 ];
 
 const checkWhitelist = (req, res, next) => {
