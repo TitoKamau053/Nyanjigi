@@ -59,8 +59,8 @@ router.post('/callback',
     body('transaction_id').trim().notEmpty().withMessage('Transaction ID is required'),
     body('member_number').trim().notEmpty().withMessage('Member number is required'),
     body('amount').isFloat({ min: 0.01 }).withMessage('Valid amount is required'),
-    body('payment_method').isIn(['branch', 'agent', 'equitel', 'mpesa', 'ussd', 'app']).withMessage('Valid payment method is required'),
-    body('status').isIn(['success', 'failed', 'completed', 'pending']).withMessage('Valid status is required')
+    body('payment_method').trim().notEmpty().withMessage('Payment method is required'),
+    body('status').optional()
   ],
   handleValidationErrors,
   asyncHandler(EquityController.handlePaymentCallback.bind(EquityController))

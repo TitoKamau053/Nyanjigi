@@ -216,7 +216,6 @@ class EquityController {
         member_number: 'Member/Account number',
         amount: 'Payment amount',
         payment_method: 'Payment method',
-        status: 'Payment status'
       };
 
       for (const [field, label] of Object.entries(requiredFields)) {
@@ -266,11 +265,12 @@ class EquityController {
    * STEP 3: Process Payment (Async)
    * Allocates payment to bills, fines, and contributions
    */
-  async processEquityPayment(callbackData) {
+async processEquityPayment(callbackData) {
     try {
       const {
         transaction_id,
         member_number,
+        customer_name,
         amount,
         reference_type,
         payment_method,
@@ -280,20 +280,27 @@ class EquityController {
 
       console.log('[Equity Process] Starting:', transaction_id);
 
-      // Check payment status
-      if (status !== 'success' && status !== 'completed') {
-        console.log('[Equity Process] Payment failed:', { transaction_id, status });
-        
+      let finalStatus = 'completed';
+      
+      if (status && status.trim() !== '') {
+        const providedStatus = status.toLowerCase();
+         if (providedStatus === 'failed' || providedStatus === 'reversed') {
+             finalStatus = 'failed';
+         }
+      }
+
+      // Check failure status
+      if (finalStatus === 'failed') {
+        console.log('[Equity Process] Payment failed:', { transaction_id, status: finalStatus });
         await this.logPaymentAttempt({
           transaction_id,
           member_number,
           amount,
           payment_method,
           status: 'failed',
-          reason: `Payment status: ${status}`,
+          reason: `Payment status explicitly set to: ${status}`,
           timestamp
         });
-        
         return;
       }
 
@@ -367,7 +374,7 @@ class EquityController {
         `equity_${payment_method}`,
         parseFloat(amount),
         paymentDate,
-        'completed',
+        finalStatus,
         JSON.stringify(callbackData),
         callbackData.narrative || `Equity payment via ${payment_method}`
       ]);
