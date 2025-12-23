@@ -2,26 +2,19 @@ const AfricasTalking = require('africastalking');
 const { SystemSettings } = require('../models');
 
 class SMSService {
-  constructor() {
-    // Temporarily hardcode sandbox credentials for testing
-    if (process.env.NODE_ENV === 'development') {
-      this.apiKey = '#############';
-      this.username = 'sandbox';
-      this.sandbox = true;
-    } else {
-      this.apiKey = process.env.AT_API_KEY;
-      this.username = process.env.AT_USERNAME;
-      this.sandbox = process.env.AT_ENV === 'sandbox';
-    }
+constructor() {
+    this.apiKey = process.env.AT_API_KEY;
+    this.username = process.env.AT_USERNAME;
+    
+    this.sandbox = process.env.AT_ENV === 'sandbox';
     
     this.senderId = null;
     this.at = null;
     this.sms = null;
     
-    // Debug: Log what we're using
-    console.log('SMS Service Credentials:');
-    console.log('AT_API_KEY:', this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'NOT SET');
+    console.log('SMS Service Configuration:');
     console.log('AT_USERNAME:', this.username);
+    console.log('AT_ENV:', process.env.AT_ENV);
     console.log('Sandbox mode:', this.sandbox);
   }
 
@@ -29,7 +22,6 @@ class SMSService {
   async initialize() {
     try {
       const settings = await SystemSettings.getNotificationSettings();
-      // Use default sender ID or none until NYANJIGI is approved
       this.senderId = null; // Temporarily disable custom sender ID
       
       if (!this.apiKey || !this.username) {
