@@ -21,8 +21,48 @@ const { Customer, Bill, Contribution, Fine, Payment } = require('../models');
 const { executeQuery, executeTransaction } = require('../config/database');
 const ApiResponse = require('../utils/response');
 const moment = require('moment');
+const jwt = require('jsonwebtoken');
 
 class EquityController {
+
+  /**
+   * STEP 0: Authentication Endpoint
+   * Equity calls this to get an Access Token
+   */
+async login(req, res) {
+    try {
+      const { username, password } = req.body;
+
+      // 1. Verify Credentials
+      if (username !== process.env.EQUITY_API_USERNAME || 
+          password !== process.env.EQUITY_API_PASSWORD) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      // 2. Generate Tokens using EQUITY_JWT_SECRET
+      const accessToken = jwt.sign(
+        { role: 'equity_biller', type: 'access' },
+        process.env.EQUITY_JWT_SECRET,
+        { expiresIn: '1h' }
+      );
+
+      const refreshToken = jwt.sign(
+        { role: 'equity_biller', type: 'refresh' },
+        process.env.EQUITY_JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      return res.status(200).json({
+        access: accessToken,
+        refresh: refreshToken
+      });
+
+    } catch (error) {
+      console.error('[Equity Auth] Error:', error);
+      return res.status(500).json({ success: false, message: 'Authentication failed' });
+    }
+  }
+
   /**
    * STEP 1: Customer Validation
    * Called by Equity API when customer initiates payment

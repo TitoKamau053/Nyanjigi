@@ -1,10 +1,6 @@
 const AfricasTalking = require('africastalking');
 const { SystemSettings } = require('../models');
 
-/**
- * SMS Service - Handles SMS notifications via Africa's Talking
- */
-
 class SMSService {
   constructor() {
     // Temporarily hardcode sandbox credentials for testing
