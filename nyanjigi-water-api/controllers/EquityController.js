@@ -824,23 +824,18 @@ async processEquityPayment(callbackData) {
     try {
       const { customer_id } = req.params;
       const { page = 1, limit = 20 } = req.query;
-      const offset = (page - 1) * limit;
+      
+      // FIX: Parse pagination values to integers
+      const limitInt = parseInt(limit) || 20;
+      const offsetInt = (parseInt(page) - 1) * limitInt;
 
-      // Verify customer access
       if (req.customer && req.customer.id !== parseInt(customer_id)) {
         return ApiResponse.forbidden(res, 'Access denied');
       }
 
       const historyQuery = `
         SELECT
-          p.id,
-          p.transaction_id,
-          p.equity_reference,
-          p.amount,
-          p.payment_date,
-          p.payment_method,
-          p.status,
-          p.notes,
+          p.*,
           (
             SELECT JSON_ARRAYAGG(
               JSON_OBJECT(
@@ -857,10 +852,10 @@ async processEquityPayment(callbackData) {
         WHERE p.customer_id = ? 
         AND p.payment_method LIKE 'equity_%'
         ORDER BY p.payment_date DESC
-        LIMIT ? OFFSET ?
+        LIMIT ${limitInt} OFFSET ${offsetInt}
       `;
 
-      const payments = await executeQuery(historyQuery, [customer_id, limit, offset]);
+      const payments = await executeQuery(historyQuery, [customer_id]);
 
       // Get total count
       const countQuery = `

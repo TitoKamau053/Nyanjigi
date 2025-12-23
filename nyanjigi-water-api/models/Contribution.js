@@ -355,9 +355,12 @@ class Contribution extends BaseModel {
     }
   }
 
-  // Get overdue contributions
+// Get overdue contributions
   async getOverdueContributions(limit = 100) {
     try {
+      //Ensure limit is an integer and interpolated directly into the query
+      const limitInt = parseInt(limit) || 100;
+
       const query = `
         SELECT 
           cont.*,
@@ -372,10 +375,11 @@ class Contribution extends BaseModel {
         AND cont.status != 'completed'
         AND c.is_active = TRUE
         ORDER BY cont.due_date ASC
-        LIMIT ?
+        LIMIT ${limitInt}
       `;
 
-      const contributions = await executeQuery(query, [limit]);
+      // FIX: Remove [limit] from the parameters array
+      const contributions = await executeQuery(query);
       
       return contributions.map(contrib => ({
         ...contrib,
