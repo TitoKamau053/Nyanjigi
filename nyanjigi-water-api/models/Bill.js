@@ -134,8 +134,27 @@ class Bill extends BaseModel {
       // Bulk insert bills
       await this.bulkInsert(billsData);
 
+      console.log('Bills generated. Now processing automatic payments from advances');
+      
+      // Get unique list of customers who were just billed
+      const billedCustomerIds = billsData.map(b => b.customer_id);
+      
+      // Process advances for each customer (can be done in parallel or sequence)
+      // Using sequence to be safe with DB connections
+      let autoPaidCount = 0;
+      for (const custId of billedCustomerIds) {
+        try {
+          const result = await Payment.processCustomerAdvances(custId);
+          if (result.allocations_made > 0) autoPaidCount++;
+        } catch (err) {
+          console.error(`Failed to process advance for customer ${custId}`, err);
+        }
+      }
+
+      // Return result (enhanced with auto-pay info)
       return {
         generated_count: billsData.length,
+        auto_paid_count: autoPaidCount, // New field in response
         billing_period: `${periodStart} to ${periodEnd}`,
         customers_billed: customers.map(c => ({
           id: c.id,
@@ -145,6 +164,7 @@ class Bill extends BaseModel {
         })),
         notifications
       };
+
     } catch (error) {
       console.error('Error generating monthly bills:', error);
       throw error;

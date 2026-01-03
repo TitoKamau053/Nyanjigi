@@ -75,8 +75,31 @@ class Contribution extends BaseModel {
       // Bulk insert contributions
       await this.bulkInsert(contributionsData);
 
+      console.log('Contributions generated. Now processing automatic payments from advances...');
+      
+      // Require Payment model here to avoid circular dependency issues at the top of the file
+      const Payment = require('./Payment');
+      
+      let autoPaidCount = 0;
+      
+      // Loop through every customer we just generated a contribution for
+      for (const data of contributionsData) {
+        try {
+          // Attempt to pay this new contribution using any existing advance balance
+          const result = await Payment.processCustomerAdvances(data.customer_id);
+          
+          if (result.processed && result.allocations_made > 0) {
+            autoPaidCount++;
+          }
+        } catch (err) {
+          console.error(`Failed to process advance for customer ${data.customer_id}:`, err.message);
+          // Continue to next customer even if one fails
+        }
+      }
+
       return {
         generated_count: contributionsData.length,
+        auto_paid_count: autoPaidCount, // Return this stat for reporting
         contribution_month: firstDay,
         amount_per_customer: contributionAmount,
         due_date: dueDate,

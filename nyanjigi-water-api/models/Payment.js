@@ -267,6 +267,197 @@ async getCustomerPayments(customerId, page = 1, limit = 10) {
       throw error;
     }
   }
+  /**
+   * Process Overpayments for a customer
+   */
+async processCustomerAdvances(customerId) {
+    try {
+      const safeCustomerId = parseInt(customerId);
+      console.log(`Processing overpayments for customer: ${customerId}`);
+
+      // Fetch all overpayments for the customer
+      const advancesQuery = `
+      SELECT pa.id, pa.amount, pa.payment_id, p.transaction_id
+        FROM payment_allocations pa
+        JOIN payments p ON pa.payment_id = p.id
+        WHERE p.customer_id = ? 
+        AND pa.allocation_type = 'advance'
+        AND pa.amount > 0
+        ORDER BY pa.created_at ASC
+      `;
+      const advances = await executeQuery(advancesQuery, [customerId]);
+
+      if (advances.length === 0) {
+        return{ processed: false, message: 'No advances found for this customer.' };
+      }
+
+      let totalAdvance = advances.reduce((sum, adv) => sum + parseFloat(adv.amount), 0);
+      console.log(`Total advance amount: ${totalAdvance}`);
+
+      const Bill = require('./Bill');
+      const Fine = require('./Fine');
+      const Contribution = require('./Contribution');
+
+      //get all unpaid bills, fines, contributions
+      const bills = await executeQuery(
+        `SELECT id, total_amount, status FROM bills 
+         WHERE customer_id = ? AND status != 'paid' 
+         ORDER BY due_date ASC`, 
+        [safeCustomerId] 
+      );
+
+      const fines = await executeQuery(
+        `SELECT id, amount, status FROM applied_fines 
+          WHERE customer_id = ? AND status != 'paid' 
+          ORDER BY applied_date ASC`,
+        [safeCustomerId] 
+      );
+
+      const contributions = await executeQuery(
+        `SELECT id, amount_required, amount_paid, status FROM contributions 
+          WHERE customer_id = ? AND status != 'completed' 
+          ORDER BY contribution_month ASC`,
+        [safeCustomerId] 
+      );
+
+      let allocatedCount = 0;
+
+      // 3. Helper function to use advance funds
+      const useAdvance = async (amountNeeded, itemId, itemType, notes) => {
+        let remainingNeeded = amountNeeded;
+
+        // Loop through advances until need is met or advances run out
+        for (const advance of advances) {
+          if (remainingNeeded <= 0 || parseFloat(advance.amount) <= 0) continue;
+
+          const amountToTake = Math.min(parseFloat(advance.amount), remainingNeeded);
+          
+          // Logic: "Split" the advance allocation
+          // If taking full amount: convert type to 'bill_payment'/'fine'/etc
+          // If taking partial: reduce advance amount, create new allocation for item
+
+          if (amountToTake >= parseFloat(advance.amount)) {
+            // OPTION A: Fully consume this advance record
+            // Update the existing allocation record to point to the new item
+            const updateQuery = `
+              UPDATE payment_allocations 
+              SET allocation_type = ?, bill_id = ?, amount = ?, notes = ?
+              WHERE id = ?
+            `;
+            // Note: bill_id column is used for bills, for others it might be null/unused in schema
+            // If schema strictly links bills, handle accordingly. Assuming 'bill_id' is nullable for fines/contribs
+            const billIdVal = itemType === 'bill_payment' ? itemId : null;
+            
+            await executeQuery(updateQuery, [itemType, billIdVal, amountToTake, notes, advance.id]);
+            
+            // Mark as used in our local array
+            advance.amount = 0;
+          } else {
+            // OPTION B: Partially consume
+            // 1. Reduce existing advance
+            const newAdvanceAmount = parseFloat(advance.amount) - amountToTake;
+            await executeQuery(
+              'UPDATE payment_allocations SET amount = ? WHERE id = ?', 
+              [newAdvanceAmount, advance.id]
+            );
+            
+            // 2. Create new allocation for the item linked to original payment
+            const insertQuery = `
+              INSERT INTO payment_allocations 
+              (payment_id, bill_id, allocation_type, amount, notes)
+              VALUES (?, ?, ?, ?, ?)
+            `;
+            const billIdVal = itemType === 'bill_payment' ? itemId : null;
+            
+            await executeQuery(insertQuery, [
+              advance.payment_id, billIdVal, itemType, amountToTake, notes
+            ]);
+
+            // Update local tracking
+            advance.amount = newAdvanceAmount;
+          }
+
+          remainingNeeded -= amountToTake;
+          totalAdvance -= amountToTake;
+        }
+        return amountNeeded - remainingNeeded; // Amount actually allocated
+      };
+
+      // 4. Allocate to items in priority order
+      
+      // A. Pay Bills
+      for (const bill of bills) {
+        if (totalAdvance <= 0) break;
+        
+        // Calculate pending amount (assuming partial payments exist, check allocations)
+        // Simplification: relying on Bill.updateBillStatus logic usually handled by controller
+        // We need accurate outstanding balance.
+        const allocations = await executeQuery(
+          "SELECT SUM(amount) as paid FROM payment_allocations WHERE bill_id = ? AND allocation_type = 'bill_payment'",
+          [bill.id]
+        );
+        const alreadyPaid = parseFloat(allocations[0].paid || 0);
+        const outstanding = parseFloat(bill.total_amount) - alreadyPaid;
+
+        if (outstanding > 0) {
+          const allocated = await useAdvance(outstanding, bill.id, 'bill_payment', `Paid from Advance Balance`);
+          if (allocated > 0) {
+            const newStatus = (alreadyPaid + allocated) >= parseFloat(bill.total_amount) ? 'paid' : 'partially_paid';
+            await Bill.updateBillStatus(bill.id, newStatus, newStatus === 'paid' ? new Date() : null);
+            allocatedCount++;
+          }
+        }
+      }
+
+      // B. Pay Fines
+      for (const fine of fines) {
+        if (totalAdvance <= 0) break;
+        
+        // Check if fine table tracks partials? Schema says 'status' and 'amount'. 
+        // Assuming allocations track partials or it's one-off.
+        // We'll assume we check current allocations for this fine (if schema links fine_id in allocations, 
+        // BUT schema provided only has bill_id in allocations table). 
+        // **Workaround**: If schema doesn't link fines to allocations, we usually just update the fine status directly 
+        // and create an allocation record with notes.
+        
+        const fineAllocated = await useAdvance(parseFloat(fine.amount), null, 'fine', `Fine #${fine.id} payment`);
+        if (fineAllocated >= parseFloat(fine.amount)) {
+            await executeQuery("UPDATE applied_fines SET status = 'paid' WHERE id = ?", [fine.id]);
+            allocatedCount++;
+        }
+      }
+
+      // C. Pay Contributions
+      for (const contrib of contributions) {
+        if (totalAdvance <= 0) break;
+
+        const outstanding = parseFloat(contrib.amount_required) - parseFloat(contrib.amount_paid);
+        if (outstanding > 0) {
+          const allocated = await useAdvance(outstanding, null, 'contribution', `Contribution #${contrib.id} payment`);
+          
+          if (allocated > 0) {
+            const newPaid = parseFloat(contrib.amount_paid) + allocated;
+            const newStatus = newPaid >= parseFloat(contrib.amount_required) ? 'completed' : 'partial';
+            
+            await executeQuery(
+              "UPDATE contributions SET amount_paid = ?, status = ?, completed_at = ? WHERE id = ?",
+              [newPaid, newStatus, (newStatus === 'completed' ? new Date() : null), contrib.id]
+            );
+            allocatedCount++;
+          }
+        }
+      }
+
+      return {
+        processed: true,
+        allocations_made: allocatedCount,
+        remaining_advance: totalAdvance
+      };
+    } catch (error) {
+      console.error('Error processing overpayment:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new Payment();

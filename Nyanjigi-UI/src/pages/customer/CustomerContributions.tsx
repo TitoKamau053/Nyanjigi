@@ -36,8 +36,10 @@ const CustomerContributions: React.FC = () => {
     }
   };
 
-  const formatCurrency = (amount: number): string => {
-    return `KES ${amount.toFixed(2)}`;
+  // FIX 1: Updated to handle string inputs safely
+  const formatCurrency = (amount: number | string): string => {
+    const value = Number(amount);
+    return `KES ${(isNaN(value) ? 0 : value).toFixed(2)}`;
   };
 
   if (loading) {
@@ -76,7 +78,9 @@ const CustomerContributions: React.FC = () => {
         {contributions.length > 0 ? (
           <div className="divide-y divide-white/30">
             {contributions.map((contribution) => {
-              const totalAmount = contribution.amount_required + (contribution.fines_applied || 0);
+              // FIX 2: Ensure values are parsed as Numbers before addition
+              const totalAmount = Number(contribution.amount_required) + Number(contribution.fines_applied || 0);
+              
               return (
                 <div key={contribution.id} className="p-6 hover:bg-white/10 transition-colors">
                   <div className="flex items-center justify-between">
@@ -109,7 +113,7 @@ const CustomerContributions: React.FC = () => {
                       <p className="text-2xl font-bold text-gray-900">
                         {formatCurrency(totalAmount)}
                       </p>
-                      {contribution.fines_applied > 0 && (
+                      {Number(contribution.fines_applied) > 0 && (
                         <p className="text-sm text-red-600">
                           (includes {formatCurrency(contribution.fines_applied)} late fee)
                         </p>
