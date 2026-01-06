@@ -305,6 +305,12 @@ class CustomerController {
       }, 'Customer created successfully', 201);
     } catch (error) {
       if (error.code === 'ER_DUP_ENTRY') {
+        if (error.message.includes('account_number')) {
+            return ApiResponse.error(res, 'Account number already exists', 409);
+        }
+        if (error.message.includes('national_id')) {
+            return ApiResponse.error(res, 'National ID already exists', 409);
+        }
         return ApiResponse.error(res, 'Phone number or email already exists', 409);
       }
       return ApiResponse.error(res, error.message, 500);

@@ -14,10 +14,12 @@ const ValidationSchemas = {
   // Customer validation
   createCustomer: [
     body('full_name').trim().isLength({ min: 2 }).withMessage('Full name must be at least 2 characters'),
+    body('national_id').trim().notEmpty().withMessage('National ID is required'),
+    body('account_number').trim().matches(/^NyWs-\d+$/).withMessage('Account number must start with NyWs- followed by digits'),
     body('phone').isMobilePhone('any').withMessage('Valid phone number is required'),
-    body('email').optional().isEmail().withMessage('Valid email is required'),
+    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email is required'), // checkFalsy allows empty string
     body('location').trim().notEmpty().withMessage('Location is required'),
-    body('zone').optional().isIn(['Nyakahura', 'G3', 'Githunguri']).withMessage('Zone must be one of: Nyakahura, G3, Githunguri'),
+    body('zone').isIn(['Nyakahura', 'G3', 'Githunguri']).withMessage('Zone must be one of: Nyakahura, G3, Githunguri'),
     body('connection_date').isISO8601().toDate().withMessage('Valid connection date is required'),
     body('meter_number').optional().trim()
   ],

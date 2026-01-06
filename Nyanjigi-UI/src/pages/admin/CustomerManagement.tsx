@@ -45,6 +45,9 @@ interface Pagination {
 
 const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => void }> = ({ onClose, onCustomerAdded }) => {
   const [fullName, setFullName] = useState('');
+  const [nationalId, setNationalId] = useState('');
+  // Default to Nyakahura prefix (NyWs-0)
+  const [accountNumber, setAccountNumber] = useState('NyWs-0');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [location, setLocation] = useState('');
@@ -52,15 +55,42 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
   const [connectionDate, setConnectionDate] = useState('');
   const [customerType, setCustomerType] = useState<'normal' | 'institution'>('normal');
   const [loading, setLoading] = useState(false);
-  const [generatedPassword, setGeneratedPassword] = useState('');
-  const [smsStatus, setSmsStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
   const [error, setError] = useState('');
   const { addToast } = useToast();
+
+  // Handle Zone Change to pre-apply specific zero-padding prefix
+  const handleZoneChange = (newZone: 'Nyakahura' | 'G3' | 'Githunguri') => {
+    setZone(newZone);
+    // Set specific prefix based on zone as requested
+    switch (newZone) {
+      case 'Nyakahura':
+        setAccountNumber('NyWs-0');
+        break;
+      case 'G3':
+        setAccountNumber('NyWs-00');
+        break;
+      case 'Githunguri':
+        setAccountNumber('NyWs-000');
+        break;
+      default:
+        setAccountNumber('NyWs-');
+    }
+  };
 
   const validateForm = () => {
     if (!zone || !['Nyakahura', 'G3', 'Githunguri'].includes(zone)) {
       setError('Please select a valid zone');
       return false;
+    }
+    // Ensure account number has the correct prefix format and ends with digits
+    // Allows NyWs-01, NyWs-001, NyWs-0001 etc.
+    if (!/^NyWs-0+\d+$/.test(accountNumber)) {
+        setError('Account number must match the zone format (e.g., NyWs-0... for Nyakahura)');
+        return false;
+    }
+    if (!nationalId.trim()) {
+        setError('National ID is required');
+        return false;
     }
     setError('');
     return true;
@@ -71,45 +101,26 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
     if (!validateForm()) return;
 
     setLoading(true);
-    setSmsStatus('idle');
-    setGeneratedPassword('');
     try {
-      const response = await adminService.createCustomer({
+      await adminService.createCustomer({
         full_name: fullName,
+        national_id: nationalId,
+        account_number: accountNumber,
         phone,
-        email,
+        email: email || undefined,
         location,
         zone,
         connection_date: connectionDate,
         customer_type: customerType,
       });
 
-      // Extract temporary password from API response
-      const tempPassword = response.data.data?.temporary_password || response.data.temporary_password;
-      if (tempPassword) {
-        setGeneratedPassword(tempPassword);
-        setSmsStatus('sending');
-
-        // Send SMS with password to customer
-        try {
-          await adminService.sendCustomerPassword(phone, tempPassword);
-          setSmsStatus('success');
-          addToast('Customer added successfully and password sent via SMS', 'success');
-        } catch (smsError) {
-          setSmsStatus('error');
-          addToast('Customer added successfully but SMS failed. Please provide password manually.', 'warning');
-        }
-      } else {
-        addToast('Customer added successfully', 'success');
-      }
-
+      addToast(`Customer added. Password set to ID: ${nationalId}`, 'success');
       onCustomerAdded();
+      onClose();
     } catch (error: any) {
-      if (error.response?.data?.errors?.zone) {
-        setError(error.response.data.errors.zone[0]);
-      } else {
-        addToast('Failed to add customer', 'error');
-      }
+      const msg = error.response?.data?.message || 'Failed to add customer';
+      setError(msg);
+      addToast(msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -117,9 +128,56 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-semibold mb-4">Add New Customer</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
+          
+          {/* Zone and Account Number Group */}
+          <div className="p-3 bg-gray-50 rounded-md border border-gray-200 space-y-3">
+             <div>
+                <label className="block text-sm font-medium text-gray-700">Zone</label>
+                <select
+                value={zone}
+                onChange={(e) => handleZoneChange(e.target.value as 'Nyakahura' | 'G3' | 'Githunguri')}
+                required
+                className="mt-1 block w-full border border-gray-300 rounded-md p-2 bg-white"
+                >
+                <option value="Nyakahura">Nyakahura (Code: 0)</option>
+                <option value="G3">G3 (Code: 00)</option>
+                <option value="Githunguri">Githunguri (Code: 000)</option>
+                </select>
+            </div>
+             <div>
+                <label className="block text-sm font-medium text-gray-700">Account Number</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                    <input
+                    type="text"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    required
+                    className="block w-full border border-gray-300 rounded-md p-2 font-mono"
+                    />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                    {zone === 'Nyakahura' && 'Format: NyWs-0[Number]'}
+                    {zone === 'G3' && 'Format: NyWs-00[Number]'}
+                    {zone === 'Githunguri' && 'Format: NyWs-000[Number]'}
+                </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">National ID (Used as Password)</label>
+            <input
+              type="text"
+              value={nationalId}
+              onChange={(e) => setNationalId(e.target.value)}
+              placeholder="Enter National ID"
+              required
+              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+            />
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700">Full Name</label>
             <input
@@ -131,28 +189,31 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
               className="mt-1 block w-full border border-gray-300 rounded-md p-2"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Phone</label>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="Enter phone number"
-              required
-              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
-            />
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Phone</label>
+                <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="07..."
+                required
+                className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+                />
+            </div>
+             <div>
+                <label className="block text-sm font-medium text-gray-700">Email (Optional)</label>
+                <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@example.com"
+                className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+                />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter email address"
-              required
-              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
-            />
-          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700">Location</label>
             <input
@@ -164,113 +225,51 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
               className="mt-1 block w-full border border-gray-300 rounded-md p-2"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Zone</label>
-            <select
-              value={zone}
-              onChange={(e) => setZone(e.target.value as 'Nyakahura' | 'G3' | 'Githunguri')}
-              required
-              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
-            >
-              <option value="Nyakahura">Nyakahura</option>
-              <option value="G3">G3</option>
-              <option value="Githunguri">Githunguri</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Connection Date</label>
-            <input
-              type="date"
-              value={connectionDate}
-              onChange={(e) => setConnectionDate(e.target.value)}
-              required
-              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Customer Type</label>
-            <select
-              value={customerType}
-              onChange={(e) => setCustomerType(e.target.value as 'normal' | 'institution')}
-              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
-            >
-              <option value="normal">Normal</option>
-              <option value="institution">Institution</option>
-            </select>
-          </div>
-
-          {generatedPassword && (
-            <div className="p-4 bg-blue-50 rounded-md border border-blue-200">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-700">Generated Password:</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <p className="font-mono bg-white p-2 rounded border flex-1">{generatedPassword}</p>
-                    <button
-                      type="button"
-                      onClick={() => navigator.clipboard.writeText(generatedPassword)}
-                      className="px-3 py-1 text-sm rounded bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
-                      title="Copy password"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-3 text-sm">
-                {smsStatus === 'sending' && (
-                  <div className="flex items-center gap-2 text-blue-600">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                    <p>Sending password to customer via SMS...</p>
-                  </div>
-                )}
-                {smsStatus === 'success' && (
-                  <div className="flex items-center gap-2 text-green-600">
-                    <span className="text-green-500">✓</span>
-                    <p>Password sent successfully to {phone}</p>
-                  </div>
-                )}
-                {smsStatus === 'error' && (
-                  <div className="flex items-center gap-2 text-red-600">
-                    <span className="text-red-500">⚠</span>
-                    <p>Failed to send SMS. Please provide password manually to customer.</p>
-                  </div>
-                )}
-              </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Connection Date</label>
+                <input
+                type="date"
+                value={connectionDate}
+                onChange={(e) => setConnectionDate(e.target.value)}
+                required
+                className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+                />
             </div>
-          )}
+            <div>
+                <label className="block text-sm font-medium text-gray-700">Customer Type</label>
+                <select
+                value={customerType}
+                onChange={(e) => setCustomerType(e.target.value as 'normal' | 'institution')}
+                className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+                >
+                <option value="normal">Normal</option>
+                <option value="institution">Institution</option>
+                </select>
+            </div>
+          </div>
 
           {error && (
-            <div className="text-red-600 text-sm text-center">{error}</div>
+            <div className="text-red-600 text-sm text-center bg-red-50 p-2 rounded border border-red-200">{error}</div>
           )}
-          <div className="flex justify-end space-x-2">
-            {generatedPassword ? (
-              <button
+          
+          <div className="flex justify-end space-x-2 pt-4 border-t mt-4">
+            <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-              >
-                Done
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400"
-                  disabled={loading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-                  disabled={loading}
-                >
-                  {loading ? 'Adding...' : 'Add Customer'}
-                </button>
-              </>
-            )}
+                className="px-4 py-2 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 border"
+                disabled={loading}
+            >
+                Cancel
+            </button>
+            <button
+                type="submit"
+                className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
+                disabled={loading}
+            >
+                {loading ? 'Adding...' : 'Add Customer'}
+            </button>
           </div>
         </form>
       </div>

@@ -20,19 +20,17 @@ class Customer extends BaseModel {
         throw new Error(`Invalid zone. Must be one of: ${validZones.join(', ')}`);
       }
 
-      // Generate account number for the zone
-      const accountNumber = await getNextAccountNumber(zone);
+      // Use provided account number instead of generating one
+      const accountNumber = customerData.account_number;
 
-      // Generate default password if not provided
-      let password = customerData.password;
-      if (!password) {
-        password = AuthUtils.generateRandomPassword();
-      }
-
+      // Use National ID as the initial password
+      const password = customerData.national_id;
+      
       const hashedPassword = await AuthUtils.hashPassword(password);
 
       const data = {
         account_number: accountNumber,
+        national_id: customerData.national_id, // Add National ID to DB
         full_name: customerData.full_name,
         phone: customerData.phone,
         email: customerData.email || null,
@@ -47,10 +45,10 @@ class Customer extends BaseModel {
 
       const customer = await this.create(data);
 
-      // Return customer with plain password for initial setup and SMS
+      // Return customer with plain password (which is the ID) for SMS notification
       return {
         ...customer,
-        plain_password: password // Only returned on creation
+        plain_password: password 
       };
     } catch (error) {
       console.error('Error creating customer:', error);
