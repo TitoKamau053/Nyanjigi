@@ -191,25 +191,29 @@ constructor() {
     }
   }
 
-  // Send password notification
+  // Send password notification SMS
   async sendPasswordNotification(customer, password) {
     try {
       // Create a simple password message if no template exists
       const message = `Hello ${customer.full_name}, welcome to Nyanjigi Water! Your account password is: ${password}. Please keep it safe. Account: ${customer.account_number}`;
       
-      // Try to send with template first, fallback to direct message
-      try {
-        const variables = {
-          customer_name: customer.full_name,
-          password: password,
-          account_number: customer.account_number
-        };
-        return await this.sendTemplatedSMS(customer.phone, 'password_notification', variables);
-      } catch (templateError) {
-        console.log('Template not found, sending direct message');
-        // Fallback to direct SMS sending
+      // Try to send with template first
+      const variables = {
+        customer_name: customer.full_name,
+        password: password,
+        account_number: customer.account_number
+      };
+      
+      const result = await this.sendTemplatedSMS(customer.phone, 'password_notification', variables);
+
+      // CHECK IF IT FAILED AND FALLBACK
+      if (!result.success) {
+        console.log('Template execution failed or not found, sending direct message');
         return await this.sendSMS(customer.phone, message);
       }
+      
+      return result;
+
     } catch (error) {
       console.error('Password notification failed:', error);
       return {

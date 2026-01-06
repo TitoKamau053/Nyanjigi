@@ -9,6 +9,7 @@ const dbConfig = {
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
+  multipleStatements: true,
   connectionLimit: 10,
   queueLimit: 0,
   charset: 'utf8mb4',
