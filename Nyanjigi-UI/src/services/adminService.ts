@@ -54,14 +54,17 @@ export const adminService = {
   getCustomerById: (id: number) => 
     api.get(`/customers/${id}`),
 
-  // Create new customer
+// Create new customer
   createCustomer: (data: { 
     full_name: string; 
+    national_id: string;      
+    account_number: string;   
     phone: string; 
     email?: string;
     location: string; 
     zone: 'Nyakahura' | 'G3' | 'Githunguri';
-    connection_date: string; // YYYY-MM-DD
+    connection_date: string; 
+    customer_type: 'normal' | 'institution'; 
   }) => api.post('/customers', data),
 
   // Update customer information

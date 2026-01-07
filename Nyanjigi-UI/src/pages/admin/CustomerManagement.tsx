@@ -8,7 +8,7 @@ interface Customer {
   id: number;
   account_number: string;
   full_name: string;
-  email: string;
+  email: string | null;
   phone: string;
   location: string;
   zone: 'Nyakahura' | 'G3' | 'Githunguri';
@@ -24,7 +24,7 @@ interface ApiCustomer {
   account_number: string;
   full_name: string;
   phone: string;
-  email: string;
+  email: string | null;
   location: string;
   zone: 'Nyakahura' | 'G3' | 'Githunguri';
   customer_type: 'normal' | 'institution';
@@ -433,9 +433,9 @@ const CustomerManagement: React.FC = () => {
   };
 
   const filteredCustomers = customers.filter(customer =>
-    customer.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.account_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email.toLowerCase().includes(searchTerm.toLowerCase())
+    (customer.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (customer.account_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (customer.email || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const toggleCustomerStatus = async (customerId: number) => {
