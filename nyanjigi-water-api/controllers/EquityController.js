@@ -40,21 +40,21 @@ async login(req, res) {
       }
 
       // 2. Generate Tokens using EQUITY_JWT_SECRET
+      // const refreshToken = jwt.sign(
+      //   { role: 'equity_biller', type: 'refresh' },
+      //   process.env.EQUITY_JWT_SECRET,
+      //   { expiresIn: '1h' }
+      // );
+
       const accessToken = jwt.sign(
         { role: 'equity_biller', type: 'access' },
-        process.env.EQUITY_JWT_SECRET,
-        { expiresIn: '1h' }
-      );
-
-      const refreshToken = jwt.sign(
-        { role: 'equity_biller', type: 'refresh' },
         process.env.EQUITY_JWT_SECRET,
         { expiresIn: '24h' }
       );
 
       return res.status(200).json({
         access: accessToken,
-        refresh: refreshToken
+        // refresh: refreshToken
       });
 
     } catch (error) {
