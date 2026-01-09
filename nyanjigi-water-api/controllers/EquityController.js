@@ -153,7 +153,7 @@ async validateCustomer(req, res) {
    * STEP 2: Payment Callback Handler
    * Returns responseCode and responseMessage.
    */
-  async handlePaymentCallback(req, res) {
+async handlePaymentCallback(req, res) {
     try {
       const {
         transaction_id,
@@ -174,7 +174,6 @@ async validateCustomer(req, res) {
         status
       });
 
-      // Basic validation
       if (!transaction_id || !member_number || !amount) {
          return res.status(400).json({
             responseCode: "400",
@@ -182,13 +181,35 @@ async validateCustomer(req, res) {
          });
       }
 
-      // 1. Acknowledge receipt immediately with specific keys
+      const duplicateCheck = `
+        SELECT id FROM payments 
+        WHERE transaction_id = ? 
+        OR equity_reference = ?
+        LIMIT 1
+      `;
+      
+      const existing = await executeQuery(duplicateCheck, [
+        `EQ-${transaction_id}`, 
+        transaction_id
+      ]);
+
+      if (existing && existing.length > 0) {
+         console.warn('[Equity Callback] Duplicate detected:', transaction_id);
+         // Return error immediately without processing
+         return res.status(200).json({ // Keep 200 HTTP status but send error code in body
+            responseCode: "409", // Using 409 Conflict or standard error code
+            responseMessage: "Similar payment appears in our system"
+         });
+      }
+   
+
+      // 1. Acknowledge receipt
       res.status(200).json({
         responseCode: "200",
         responseMessage: "Success"
       });
 
-      // 2. Process payment asynchronously
+      // 2. Process payment asynchronously (now safe from duplicates)
       this.processEquityPayment({
         transaction_id,
         member_number,
@@ -205,7 +226,6 @@ async validateCustomer(req, res) {
 
     } catch (error) {
       console.error('[Equity Callback] Handler error:', error);
-      // Even in error, try to return valid JSON if possible, or let Express handle 500
       if (!res.headersSent) {
         return res.status(500).json({
           responseCode: "500",
