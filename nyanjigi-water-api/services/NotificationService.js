@@ -20,56 +20,62 @@ class NotificationService {
     }
   }
 
-async sendNotification(recipient, notificationType, variables = {}, options = {}) {
-  try {
-    await this.initialize();
+  async sendNotification(recipient, notificationType, variables = {}, options = {}) {
+    try {
+      await this.initialize();
 
-    const results = {
-      sms: null,
-      email: null,
-      success: false
-    };
+      const results = {
+        sms: null,
+        email: null,
+        success: false
+      };
 
-    if (this.settings.sms_enabled && recipient.phone) {
-      try {
-        results.sms = await SMSService.sendTemplatedSMS(
-          recipient.phone,
-          notificationType,
-          variables
-        );
-      } catch (error) {
-        console.error('SMS notification failed:', error);
-        results.sms = { success: false, error: error.message };
+      if (this.settings.sms_enabled && recipient.phone) {
+        try {
+          // FIX: Handle manual test messages directly without template lookup
+          if (notificationType === 'manual_sms') {
+             const messageContent = variables.message || 'Test Notification';
+             results.sms = await SMSService.sendSMS(recipient.phone, messageContent);
+          } else {
+             // Normal templated messages
+             results.sms = await SMSService.sendTemplatedSMS(
+              recipient.phone,
+              notificationType,
+              variables
+            );
+          }
+        } catch (error) {
+          console.error('SMS notification failed:', error);
+          results.sms = { success: false, error: error.message };
+        }
       }
-    }
 
-    if (this.settings.email_enabled && recipient.email) {
-      results.email = { success: false, error: 'Email service not implemented' };
-    }
+      if (this.settings.email_enabled && recipient.email) {
+        results.email = { success: false, error: 'Email service not implemented' };
+      }
 
-    
-    await this.logNotification(
-      recipient.id,           
-      recipient.phone,        
-      notificationType,       
-      'sms',                  
-      results.sms?.success ? 'sent' : 'failed', 
-      results,                
-      variables               
-    );
-    
-    results.success = Boolean(results.sms?.success || results.email?.success);
-    return results;
-  } catch (error) {
-    console.error('Notification sending failed:', error);
-    return {
-      sms: null,
-      email: null,
-      success: false,
-      error: error.message
-    };
+      await this.logNotification(
+        recipient.id,           
+        recipient.phone,        
+        notificationType,       
+        'sms',                  
+        results.sms?.success ? 'sent' : 'failed', 
+        results,                
+        variables               
+      );
+      
+      results.success = Boolean(results.sms?.success || results.email?.success);
+      return results;
+    } catch (error) {
+      console.error('Notification sending failed:', error);
+      return {
+        sms: null,
+        email: null,
+        success: false,
+        error: error.message
+      };
+    }
   }
-}
 
   async sendBulkNotifications(recipients, notificationType, variableGenerator, options = {}) {
     try {
@@ -166,7 +172,7 @@ async sendNotification(recipient, notificationType, variables = {}, options = {}
           smsResult.success ? 'sent' : 'failed', 
           smsResult,            
           payload               
-             );
+        );
 
         results.push({
           customer_id: payload.customer_id,
@@ -219,31 +225,34 @@ async sendNotification(recipient, notificationType, variables = {}, options = {}
     return `KES ${value.toFixed(2)}`;
   }
 
-async logNotification(recipientId, recipientPhone, notificationType, channel, status, payload = null, metadata = null) {
-  try {
-    const query = `
-        INSERT INTO notifications_sent
-          (recipient_id, recipient_phone, recipient, notification_type, channel, status, payload, metadata)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-    
-    // Get recipient name or use fallback
-    const recipient = recipientPhone || `Customer ${recipientId}`;
-    
-    await executeQuery(query, [
-      recipientId || null,
-      recipientPhone || null,
-      recipient,
-      notificationType || null,
-      channel || null,
-      status || null,
-      payload ? JSON.stringify(payload) : null,
-      metadata ? JSON.stringify(metadata) : null
-    ]);
-  } catch (error) {
-    console.error('Notification log failed:', error.message);
+  async logNotification(recipientId, recipientPhone, notificationType, channel, status, payload = null, metadata = null) {
+    try {
+      // Handle valid recipient IDs (including 0 for admin)
+      const validRecipientId = (recipientId === 0 || recipientId) ? recipientId : null;
+      
+      const query = `
+          INSERT INTO notifications_sent
+            (recipient_id, recipient_phone, recipient, notification_type, channel, status, payload, metadata)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+      
+      const recipient = recipientPhone || `User ${validRecipientId}`;
+      
+      await executeQuery(query, [
+        validRecipientId,
+        recipientPhone || null,
+        recipient,
+        notificationType || null,
+        channel || null,
+        status || null,
+        payload ? JSON.stringify(payload) : null,
+        metadata ? JSON.stringify(metadata) : null
+      ]);
+    } catch (error) {
+      console.error('Notification log failed:', error.message);
+    }
   }
-}
+
   delay(ms = 1000) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
@@ -251,45 +260,22 @@ async logNotification(recipientId, recipientPhone, notificationType, channel, st
   // Process scheduled notifications
   async processScheduledNotifications() {
     try {
-      // Check if scheduled_notifications table exists
-      const tableCheckQuery = `
-        SHOW TABLES LIKE 'scheduled_notifications'
-      `;
-      const tables = await executeQuery(tableCheckQuery);
+      const tables = await executeQuery("SHOW TABLES LIKE 'scheduled_notifications'");
+      if (tables.length === 0) return { processed: 0, successful: 0, failed: 0 };
 
-      if (tables.length === 0) {
-        // Table doesn't exist yet, return empty result
-        return {
-          processed: 0,
-          successful: 0,
-          failed: 0
-        };
-      }
-
-      // Get pending scheduled notifications
-      const pendingQuery = `
+      const pendingNotifications = await executeQuery(`
         SELECT * FROM scheduled_notifications
-        WHERE status = 'pending'
-        AND scheduled_time <= NOW()
-        ORDER BY scheduled_time ASC
-        LIMIT 50
-      `;
-      const pendingNotifications = await executeQuery(pendingQuery);
+        WHERE status = 'pending' AND scheduled_time <= NOW()
+        ORDER BY scheduled_time ASC LIMIT 50
+      `);
 
-      if (pendingNotifications.length === 0) {
-        return {
-          processed: 0,
-          successful: 0,
-          failed: 0
-        };
-      }
+      if (pendingNotifications.length === 0) return { processed: 0, successful: 0, failed: 0 };
 
       let successful = 0;
       let failed = 0;
 
       for (const notification of pendingNotifications) {
         try {
-          // Send the notification
           const recipient = {
             id: notification.recipient_id,
             phone: notification.recipient_phone,
@@ -299,54 +285,27 @@ async logNotification(recipientId, recipientPhone, notificationType, channel, st
           const variables = notification.variables ? JSON.parse(notification.variables) : {};
           const result = await this.sendNotification(recipient, notification.notification_type, variables);
 
-          // Update notification status
-          const updateQuery = `
-            UPDATE scheduled_notifications
-            SET status = ?, processed_at = NOW(), result = ?
-            WHERE id = ?
-          `;
-          await executeQuery(updateQuery, [
+          await executeQuery(`UPDATE scheduled_notifications SET status = ?, processed_at = NOW(), result = ? WHERE id = ?`, [
             result.success ? 'sent' : 'failed',
             JSON.stringify(result),
             notification.id
           ]);
 
-          if (result.success) {
-            successful++;
-          } else {
-            failed++;
-          }
+          if (result.success) successful++; else failed++;
         } catch (error) {
           console.error(`Failed to process scheduled notification ${notification.id}:`, error);
-
-          // Mark as failed
-          const updateQuery = `
-            UPDATE scheduled_notifications
-            SET status = 'failed', processed_at = NOW(), result = ?
-            WHERE id = ?
-          `;
-          await executeQuery(updateQuery, [
+          await executeQuery(`UPDATE scheduled_notifications SET status = 'failed', processed_at = NOW(), result = ? WHERE id = ?`, [
             JSON.stringify({ success: false, error: error.message }),
             notification.id
           ]);
-
           failed++;
         }
       }
 
-      return {
-        processed: pendingNotifications.length,
-        successful,
-        failed
-      };
+      return { processed: pendingNotifications.length, successful, failed };
     } catch (error) {
       console.error('Error processing scheduled notifications:', error);
-      return {
-        processed: 0,
-        successful: 0,
-        failed: 0,
-        error: error.message
-      };
+      return { processed: 0, successful: 0, failed: 0, error: error.message };
     }
   }
 }

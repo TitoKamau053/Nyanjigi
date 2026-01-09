@@ -324,156 +324,59 @@ export const adminService = {
   markContributionPaid: (id: number) => 
     api.post(`/contributions/${id}/mark-paid`),
 
+// ========================================
+  // SYSTEM SETTINGS & MAINTENANCE
   // ========================================
-  // SYSTEM SETTINGS
-  // ========================================
-
-  // Get all settings
-  getSettings: () => 
-    api.get('/settings'),
-
-  // Get settings with validation status
-  getSettingsValidation: () => 
-    api.get('/settings/validation'),
-
-  // Bulk update settings
+  getSettings: () => api.get('/settings'),
+  
+  getSettingsValidation: () => api.get('/settings/validation'),
+  
   bulkUpdateSettings: (data: { settings: Record<string, any> }) => 
     api.put('/settings/bulk', data),
 
-  // Billing Settings
-  getBillingConfig: () => 
-    api.get('/settings/billing/config'),
+  // Manual System Actions (New)
+  runSystemMaintenance: () => api.post('/settings/maintenance/run'),
+  
+  getSecurityLogs: () => api.get('/settings/logs/security'),
+  
+  sendTestNotification: (phone?: string) => api.post('/settings/notifications/test', { phone_number: phone }),
+  
+  initializeSettings: () => api.post('/settings/initialize'),
 
-  updateBillingConfig: (data: {
-    flat_rate?: number;
-    billing_day?: number;
-    payment_due_days?: number;
-    late_fine_grace_days?: number;
-  }) => api.put('/settings/billing/config', data),
-
-  // Payment Settings
-  getPaymentConfig: () => 
-    api.get('/settings/payments/config'),
-
-  updatePaymentConfig: (data: {
-    equity_paybill_account?: string;
-    equity_till_account?: string;
-    equity_callback_url?: string;
-  }) => api.put('/settings/payments/config', data),
-
-  // Test Equity Bank connection
-  testEquityConnection: () => 
-    api.post('/settings/payments/test-equity'),
-
-  // Contribution Settings
-  getContributionConfig: () => 
-    api.get('/settings/contributions/config'),
-
-  updateContributionConfig: (data: {
-    monthly_amount?: number;
-    due_days?: number;
-  }) => api.put('/settings/contributions/config', data),
-
-  // Notification Settings
-  getNotificationConfig: () => 
-    api.get('/settings/notifications/config'),
-
-  updateNotificationConfig: (data: {
-    sms_sender_id?: string;
-    sms_enabled?: boolean;
-    email_enabled?: boolean;
-  }) => api.put('/settings/notifications/config', data),
-
-  // Company Settings
-  getCompanyConfig: () => 
-    api.get('/settings/company/config'),
-
-  updateCompanyConfig: (data: {
-    company_name?: string;
-    company_phone?: string;
-    company_email?: string;
-  }) => api.put('/settings/company/config', data),
-
-  // Initialize default settings
-  initializeSettings: () => 
-    api.post('/settings/initialize'),
+  // Config Getters/Setters
+  getBillingConfig: () => api.get('/settings/billing/config'),
+  updateBillingConfig: (data: any) => api.put('/settings/billing/config', data),
+  
+  getPaymentConfig: () => api.get('/settings/payments/config'),
+  updatePaymentConfig: (data: any) => api.put('/settings/payments/config', data),
+  
+  getContributionConfig: () => api.get('/settings/contributions/config'),
+  updateContributionConfig: (data: any) => api.put('/settings/contributions/config', data),
+  
+  getNotificationConfig: () => api.get('/settings/notifications/config'),
+  updateNotificationConfig: (data: any) => api.put('/settings/notifications/config', data),
+  
+  getCompanyConfig: () => api.get('/settings/company/config'),
+  updateCompanyConfig: (data: any) => api.put('/settings/company/config', data),
+  
+  testEquityConnection: () => api.post('/settings/payments/test-equity'),
 
   // ========================================
-  // DASHBOARD & ANALYTICS (if available)
+  // DASHBOARD & ANALYTICS
   // ========================================
-
-  // Get dashboard overview
-  getDashboard: () => 
-    api.get('/admin/dashboard'),
-
-  // Get system overview
-  getSystemOverview: () => 
-    api.get('/admin/system-overview'),
-
-  // Get revenue analytics
-  getRevenueAnalytics: (period: string) => 
-    api.get(`/admin/revenue-analytics?period=${period}`),
-
-  // Get financial summary
-  getFinancialSummary: (period: string) => 
-    api.get(`/admin/financial-summary?period=${period}`),
-
-  // Get outstanding customers
-  getOutstandingCustomers: (limit: number = 10) => 
-    api.get(`/admin/outstanding-customers?limit=${limit}`),
-
-  // Get system health
-  getSystemHealth: () => 
-    api.get('/admin/system-health'),
-
-  // Export customers data
-  exportCustomers: (format: 'json' | 'csv' = 'csv') => 
-    api.get(`/admin/customers/export?format=${format}`, { responseType: 'blob' }),
-
-  // Get activity log
-  getActivityLog: (page: number = 1, limit: number = 20) => 
-    api.get(`/admin/activity-log?page=${page}&limit=${limit}`),
+  getDashboard: () => api.get('/admin/dashboard'),
+  
+  getRevenueAnalytics: (period: string) => api.get(`/admin/revenue-analytics?period=${period}`),
+  
+  getFinancialSummary: (period: string) => api.get(`/admin/financial-summary?period=${period}`),
+  
+  getSystemHealth: () => api.get('/admin/system-health'), // Mapped to AdminController.getSystemHealth
+  
+  getActivityLog: (page: number = 1, limit: number = 20) => api.get(`/admin/activity-log?page=${page}&limit=${limit}`), // Mapped to AdminController.getActivityLog
 
   // ========================================
-  // NOTIFICATIONS & SMS
+  // NOTIFICATIONS (SMS)
   // ========================================
-
-  // Get SMS status
-  getSmsStatus: () => 
-    api.get('/admin/sms/status'),
-
-  // Send single SMS
-  sendSms: (data: { 
-    phone_number: string; 
-    message: string; 
-    sender_id?: string;
-  }) => api.post('/admin/sms/send', data),
-
-  // Send bulk SMS
-  sendBulkSms: (data: { 
-    recipients: string[]; 
-    message: string; 
-    sender_id?: string;
-  }) => api.post('/admin/sms/bulk-send', data),
-
-  // Send bill reminders
-  sendBillReminders: (data: { 
-    days_overdue?: number; 
-    customer_ids?: number[];
-  }) => api.post('/admin/notifications/bill-reminders', data),
-
-  // Send payment confirmations
-  sendPaymentConfirmations: (data: { payment_ids: number[] }) =>
-    api.post('/admin/notifications/payment-confirmations', data),
-
-  // Send custom notifications
-  sendCustomNotifications: (data: { 
-    customer_ids: number[]; 
-    message: string; 
-    notification_type?: 'sms' | 'email' | 'both';
-  }) => api.post('/admin/notifications/custom', data),
-
-  // Get SMS delivery status
-  getSmsDeliveryStatus: (messageId: string) =>
-    api.get(`/admin/sms/delivery-status/${messageId}`),
+  getSmsStatus: () => api.get('/admin/sms/status'),
+  sendSms: (data: any) => api.post('/admin/sms/send', data),
 };

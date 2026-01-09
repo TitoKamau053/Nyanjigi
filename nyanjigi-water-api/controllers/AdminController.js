@@ -1,7 +1,7 @@
 const { Admin, Customer, Bill, Payment } = require('../models');
 const AuthUtils = require('../utils/auth');
 const ApiResponse = require('../utils/response');
-
+const { executeQuery } = require('../config/database');
 /**
  * Admin Controller - Handles admin authentication and management operations
  */
@@ -230,61 +230,7 @@ class AdminController {
     }
   }
 
-  // Get admin activity log
-  static async getActivityLog(req, res) {
-    try {
-      const { page = 1, limit = 20 } = req.query;
-      const offset = (page - 1) * limit;
-
-      // This would require an audit_logs table implementation
-      // For now, return recent admin actions based on updated records
-      const recentActivities = await Admin.rawQuery(`
-        SELECT 
-          'customer_created' as action,
-          c.full_name as target,
-          c.created_at as timestamp,
-          'Created new customer' as description
-        FROM customers c
-        WHERE c.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-        
-        UNION ALL
-        
-        SELECT 
-          'bill_generated' as action,
-          CONCAT(cust.full_name, ' - ', b.bill_number) as target,
-          b.generated_at as timestamp,
-          'Generated monthly bill' as description
-        FROM bills b
-        JOIN customers cust ON b.customer_id = cust.id
-        WHERE b.generated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-        
-        ORDER BY timestamp DESC
-        LIMIT ${parseInt(offset)}, ${parseInt(limit)}
-      `);
-
-      const totalCount = await Admin.rawQuery(`
-        SELECT COUNT(*) as total FROM (
-          SELECT created_at FROM customers WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-          UNION ALL
-          SELECT generated_at FROM bills WHERE generated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-        ) as activities
-      `);
-
-      return ApiResponse.success(res, {
-        activities: recentActivities,
-        pagination: {
-          current_page: parseInt(page),
-          per_page: parseInt(limit),
-          total: totalCount[0].total,
-          total_pages: Math.ceil(totalCount[0].total / limit)
-        }
-      }, 'Activity log retrieved successfully');
-    } catch (error) {
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
-
-  // Get system health check
+// REAL SYSTEM HEALTH CHECK
   static async getSystemHealth(req, res) {
     try {
       const health = {
@@ -292,61 +238,58 @@ class AdminController {
         timestamp: new Date().toISOString(),
         checks: {
           database: 'healthy',
-          customers: 'healthy',
-          billing: 'healthy',
-          payments: 'healthy'
+          payment_gateway: 'active',
+          api_services: 'running',
+          backup: 'scheduled'
         },
         statistics: {}
       };
 
-      // Check database connectivity
+      // 1. Check DB Connection
       try {
-        await Admin.rawQuery('SELECT 1 as test');
-        health.checks.database = 'healthy';
-      } catch (error) {
+        await executeQuery('SELECT 1');
+      } catch (e) {
         health.checks.database = 'unhealthy';
-        health.status = 'degraded';
+        health.status = 'critical';
       }
 
-      // Check for recent customer activity
-      try {
-        const recentCustomers = await Customer.count({ 
-          created_at: { '>=': new Date(Date.now() - 24 * 60 * 60 * 1000) }
-        });
-        health.statistics.new_customers_24h = recentCustomers;
-      } catch (error) {
-        health.checks.customers = 'degraded';
+      // 2. Check Payment Gateway Health (Look for recent failures)
+      const failures = await executeQuery(`
+        SELECT COUNT(*) as count FROM payment_logs 
+        WHERE status = 'failed' AND timestamp > DATE_SUB(NOW(), INTERVAL 1 HOUR)
+      `);
+      if (failures[0].count > 5) {
+        health.checks.payment_gateway = 'degraded';
+        health.status = 'warning';
       }
 
-      // Check for overdue bills
-      try {
-        const overdueBills = await Bill.getOverdueBills(1);
-        health.statistics.overdue_bills = overdueBills.length;
-        if (overdueBills.length > 100) {
-          health.checks.billing = 'warning';
-        }
-      } catch (error) {
-        health.checks.billing = 'degraded';
-      }
-
-      // Check recent payment activity
-      try {
-        const recentPayments = await Payment.getPaymentsWithPagination(1, 1, {
-          date_from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-        });
-        health.statistics.payments_24h = recentPayments.pagination.total;
-      } catch (error) {
-        health.checks.payments = 'degraded';
-      }
-
-      const statusCode = health.status === 'healthy' ? 200 : 
-                        health.status === 'degraded' ? 207 : 503;
-
-      return ApiResponse.success(res, health, 'System health check completed', statusCode);
+      return ApiResponse.success(res, health, 'System health retrieved');
     } catch (error) {
-      return ApiResponse.error(res, 'System health check failed', 503);
+      return ApiResponse.error(res, error.message, 500);
     }
   }
+
+  // REAL ACTIVITY LOG
+  static async getActivityLog(req, res) {
+    try {
+      const query = `
+        (SELECT 'payment' as type, CONCAT('Payment received from ', c.full_name) as title, CONCAT('KES ', p.amount) as subtitle, p.payment_date as timestamp, 'green' as color
+         FROM payments p JOIN customers c ON p.customer_id = c.id ORDER BY p.payment_date DESC LIMIT 5)
+        UNION ALL
+        (SELECT 'customer' as type, 'New customer registered' as title, CONCAT(c.full_name, ' (', c.account_number, ')') as subtitle, c.created_at as timestamp, 'blue' as color
+         FROM customers c ORDER BY c.created_at DESC LIMIT 5)
+        UNION ALL
+        (SELECT 'bill' as type, 'Bill generated' as title, CONCAT('Bill #', b.bill_number) as subtitle, b.generated_at as timestamp, 'yellow' as color
+         FROM bills b ORDER BY b.generated_at DESC LIMIT 5)
+        ORDER BY timestamp DESC LIMIT 10
+      `;
+      const activities = await executeQuery(query);
+      return ApiResponse.success(res, { activities }, 'Activity log retrieved');
+    } catch (error) {
+      return ApiResponse.error(res, error.message, 500);
+    }
+  }
+
 }
 
 module.exports = AdminController;

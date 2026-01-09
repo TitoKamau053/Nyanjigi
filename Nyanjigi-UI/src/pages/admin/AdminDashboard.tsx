@@ -20,6 +20,11 @@ const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d'>('30d');
   const [chartData, setChartData] = useState<any>(null);
+
+  // Real-time data states
+  const [systemHealth, setSystemHealth] = useState<any>(null);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+
   const { addToast } = useToast();
 
 const generateFallbackChartData = useCallback(async () => {
@@ -264,44 +269,32 @@ const fetchDashboardData = useCallback(async () => {
     }
   }, [timeRange, addToast, generateFallbackChartData]);
 
+  // Fetch Real-time System Health and Activity
+const fetchRealtimeData = useCallback(async () => {
+    try {
+        const [healthRes, activityRes] = await Promise.all([
+            adminService.getSystemHealth(),
+            adminService.getActivityLog()
+        ]);
+        
+        setSystemHealth(healthRes.data.data || healthRes.data);
+        setRecentActivity(activityRes.data.data?.activities || activityRes.data?.activities || []);
+    } catch (error) {
+        console.error("Failed to fetch realtime data", error);
+    }
+  }, []);
+
   useEffect(() => {
-    fetchDashboardData();
-    fetchChartData();
-  }, [fetchDashboardData, fetchChartData]);
+    setLoading(true);
+    Promise.all([fetchDashboardData(), fetchChartData(), fetchRealtimeData()])
+      .finally(() => setLoading(false));
+  }, [fetchDashboardData, fetchChartData, fetchRealtimeData]);
 
   const statsCards = [
-    {
-      title: 'Total Customers',
-      value: dashboardData?.totalCustomers?.toLocaleString() ?? '0',
-      icon: Users,
-      color: 'blue',
-      change: '+8.2%',
-      changeType: 'increase' as const
-    },
-    {
-      title: 'Monthly Revenue',
-      value: `KES ${((dashboardData?.totalRevenue ?? 0) / 1000).toFixed(0)}K`,
-      icon: DollarSign,
-      color: 'green',
-      change: '+15.3%',
-      changeType: 'increase' as const
-    },
-    {
-      title: 'Pending Bills',
-      value: dashboardData?.pendingBills?.toString() ?? '0',
-      icon: FileText,
-      color: 'yellow',
-      change: '-2.1%',
-      changeType: 'decrease' as const
-    },
-    {
-      title: 'Payment Success',
-      value: `${dashboardData?.paymentSuccess ?? 0}%`,
-      icon: TrendingUp,
-      color: 'cyan',
-      change: '+1.2%',
-      changeType: 'increase' as const
-    }
+    { title: 'Total Customers', value: dashboardData?.totalCustomers?.toLocaleString() ?? '0', icon: Users, color: 'blue', change: '+8.2%', changeType: 'increase' },
+    { title: 'Monthly Revenue', value: `KES ${((dashboardData?.totalRevenue ?? 0) / 1000).toFixed(0)}K`, icon: DollarSign, color: 'green', change: '+15.3%', changeType: 'increase' },
+    { title: 'Pending Bills', value: dashboardData?.pendingBills?.toString() ?? '0', icon: FileText, color: 'yellow', change: '-2.1%', changeType: 'decrease' },
+    { title: 'Payment Success', value: `${dashboardData?.paymentSuccess ?? 0}%`, icon: TrendingUp, color: 'cyan', change: '+1.2%', changeType: 'increase' }
   ];
 
   // Create chart data from the fetched/generated data
@@ -416,6 +409,12 @@ const fetchDashboardData = useCallback(async () => {
     },
   };
 
+  const getStatusColor = (status: string) => {
+    if (status === 'healthy' || status === 'active' || status === 'running') return 'text-green-600';
+    if (status === 'warning' || status === 'degraded') return 'text-yellow-600';
+    return 'text-red-600';
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -490,85 +489,44 @@ const fetchDashboardData = useCallback(async () => {
         </div>
       </div>
 
-      {/* System Health & Recent Activity */}
+
+      {/* System Health & Recent Activity  */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        
         {/* System Health */}
         <div className="backdrop-blur-xl bg-white/20 rounded-2xl p-6 border border-white/30">
           <h3 className="text-xl font-semibold text-blue-900 mb-6">System Health</h3>
-
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="text-blue-700">Database Connection</span>
-              </div>
-              <span className="text-sm font-medium text-green-600">Healthy</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="text-blue-700">Payment Gateway</span>
-              </div>
-              <span className="text-sm font-medium text-green-600">Active</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="text-blue-700">API Services</span>
-              </div>
-              <span className="text-sm font-medium text-green-600">Running</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                <span className="text-blue-700">Backup Status</span>
-              </div>
-              <span className="text-sm font-medium text-yellow-600">Scheduled</span>
-            </div>
+            {systemHealth && systemHealth.checks ? Object.entries(systemHealth.checks).map(([key, status]: [string, any]) => (
+                <div key={key} className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                        <CheckCircle className={`h-5 w-5 ${getStatusColor(status)}`} />
+                        <span className="text-blue-700 capitalize">{key.replace('_', ' ')}</span>
+                    </div>
+                    <span className={`text-sm font-medium capitalize ${getStatusColor(status)}`}>{status}</span>
+                </div>
+            )) : <p>Loading health data...</p>}
           </div>
         </div>
 
         {/* Recent Activity */}
         <div className="backdrop-blur-xl bg-white/20 rounded-2xl p-6 border border-white/30">
           <h3 className="text-xl font-semibold text-blue-900 mb-6">Recent Activity</h3>
-
           <div className="space-y-4">
-            <div className="flex items-start space-x-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-              <div className="flex-1">
-                <p className="text-sm text-blue-900 font-medium">Payment received from John Doe</p>
-                <p className="text-xs text-blue-600">KES 300 • 2 minutes ago</p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-              <div className="flex-1">
-                <p className="text-sm text-blue-900 font-medium">New customer registered</p>
-                <p className="text-xs text-blue-600">Mary Smith (NyWs-00156) • 15 minutes ago</p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2 flex-shrink-0"></div>
-              <div className="flex-1">
-                <p className="text-sm text-blue-900 font-medium">Bill generation completed</p>
-                <p className="text-xs text-blue-600">1,250 bills generated • 1 hour ago</p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3">
-              <div className="w-2 h-2 bg-cyan-500 rounded-full mt-2 flex-shrink-0"></div>
-              <div className="flex-1">
-                <p className="text-sm text-blue-900 font-medium">System backup completed</p>
-                <p className="text-xs text-blue-600">Daily backup • 2 hours ago</p>
-              </div>
-            </div>
+             {recentActivity.length > 0 ? recentActivity.map((activity, idx) => (
+                 <div key={idx} className="flex items-start space-x-3">
+                    <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-${activity.color || 'blue'}-500`}></div>
+                    <div className="flex-1">
+                        <p className="text-sm text-blue-900 font-medium">{activity.title}</p>
+                        <p className="text-xs text-blue-600">
+                           {activity.subtitle} • {new Date(activity.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </p>
+                    </div>
+                 </div>
+             )) : <p className="text-gray-500">No recent activity.</p>}
           </div>
         </div>
+
       </div>
     </div>
   );

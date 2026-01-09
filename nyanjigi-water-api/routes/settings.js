@@ -102,6 +102,45 @@ router.post('/reset',
   asyncHandler(SystemSettingsController.resetSettings)
 );
 
+// ===== SPECIAL ACTIONS (New Endpoints) =====
+
+/**
+ * @route   POST /api/v1/settings/maintenance/run
+ * @desc    Run system maintenance manually
+ * @access  Private (Admin only)
+ */
+router.post('/maintenance/run',
+  verifyAdmin,
+  asyncHandler(SystemSettingsController.runSystemMaintenance)
+);
+
+/**
+ * @route   POST /api/v1/settings/notifications/test
+ * @desc    Send test notification
+ * @access  Private (Admin only)
+ */
+router.post('/notifications/test',
+  verifyAdmin,
+  [
+    require('express-validator').body('phone_number')
+      .optional()
+      .isMobilePhone('any')
+      .withMessage('Valid phone number is required')
+  ],
+  handleValidationErrors,
+  asyncHandler(SystemSettingsController.sendTestNotification)
+);
+
+/**
+ * @route   GET /api/v1/settings/logs/security
+ * @desc    Get security logs
+ * @access  Private (Admin only)
+ */
+router.get('/logs/security',
+  verifyAdmin,
+  asyncHandler(SystemSettingsController.getSecurityLogs)
+);
+
 // ===== CATEGORY-SPECIFIC SETTINGS =====
 
 /**
@@ -122,21 +161,11 @@ router.get('/:category',
 
 // ===== BILLING SETTINGS =====
 
-/**
- * @route   GET /api/v1/settings/billing/config
- * @desc    Get billing settings
- * @access  Private (Admin only)
- */
 router.get('/billing/config',
   verifyAdmin,
   asyncHandler(SystemSettingsController.getBillingSettings)
 );
 
-/**
- * @route   PUT /api/v1/settings/billing/config
- * @desc    Update billing settings
- * @access  Private (Admin only)
- */
 router.put('/billing/config',
   verifyAdmin,
   [
@@ -163,21 +192,11 @@ router.put('/billing/config',
 
 // ===== PAYMENT SETTINGS =====
 
-/**
- * @route   GET /api/v1/settings/payments/config
- * @desc    Get payment settings
- * @access  Private (Admin only)
- */
 router.get('/payments/config',
   verifyAdmin,
   asyncHandler(SystemSettingsController.getPaymentSettings)
 );
 
-/**
- * @route   PUT /api/v1/settings/payments/config
- * @desc    Update payment settings
- * @access  Private (Admin only)
- */
 router.put('/payments/config',
   verifyAdmin,
   [
@@ -210,7 +229,7 @@ router.put('/payments/config',
 );
 
 /**
- * @route   POST /api/v1/settings/payments/test-equity',
+ * @route   POST /api/v1/settings/payments/test-equity
  * @desc    Test Equity External Integration
  * @access  Private (Admin only)
  */
@@ -221,21 +240,11 @@ router.post('/payments/test-equity',
 
 // ===== CONTRIBUTION SETTINGS =====
 
-/**
- * @route   GET /api/v1/settings/contributions/config
- * @desc    Get contribution settings
- * @access  Private (Admin only)
- */
 router.get('/contributions/config',
   verifyAdmin,
   asyncHandler(SystemSettingsController.getContributionSettings)
 );
 
-/**
- * @route   PUT /api/v1/settings/contributions/config
- * @desc    Update contribution settings
- * @access  Private (Admin only)
- */
 router.put('/contributions/config',
   verifyAdmin,
   [
@@ -254,21 +263,11 @@ router.put('/contributions/config',
 
 // ===== NOTIFICATION SETTINGS =====
 
-/**
- * @route   GET /api/v1/settings/notifications/config
- * @desc    Get notification settings
- * @access  Private (Admin only)
- */
 router.get('/notifications/config',
   verifyAdmin,
   asyncHandler(SystemSettingsController.getNotificationSettings)
 );
 
-/**
- * @route   PUT /api/v1/settings/notifications/config
- * @desc    Update notification settings
- * @access  Private (Admin only)
- */
 router.put('/notifications/config',
   verifyAdmin,
   [
@@ -292,21 +291,11 @@ router.put('/notifications/config',
 
 // ===== COMPANY SETTINGS =====
 
-/**
- * @route   GET /api/v1/settings/company/config
- * @desc    Get company settings
- * @access  Private (Admin only)
- */
 router.get('/company/config',
   verifyAdmin,
   asyncHandler(SystemSettingsController.getCompanySettings)
 );
 
-/**
- * @route   PUT /api/v1/settings/company/config
- * @desc    Update company settings
- * @access  Private (Admin only)
- */
 router.put('/company/config',
   verifyAdmin,
   [
@@ -339,11 +328,6 @@ router.put('/company/config',
 
 // ===== INDIVIDUAL SETTING OPERATIONS =====
 
-/**
- * @route   GET /api/v1/settings/key/:key
- * @desc    Get single setting value
- * @access  Private (Admin only)
- */
 router.get('/key/:key',
   verifyAdmin,
   [
@@ -356,11 +340,6 @@ router.get('/key/:key',
   asyncHandler(SystemSettingsController.getSetting)
 );
 
-/**
- * @route   PUT /api/v1/settings/key/:key
- * @desc    Update single setting
- * @access  Private (Admin only)
- */
 router.put('/key/:key',
   verifyAdmin,
   [
@@ -387,11 +366,6 @@ router.put('/key/:key',
 
 // ===== SYSTEM STATUS =====
 
-/**
- * @route   GET /api/v1/settings/system/status
- * @desc    Get system status based on settings
- * @access  Public (for health checks)
- */
 router.get('/system/status',
   asyncHandler(SystemSettingsController.getSystemStatus)
 );

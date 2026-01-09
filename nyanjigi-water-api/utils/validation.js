@@ -17,7 +17,7 @@ const ValidationSchemas = {
     body('national_id').trim().notEmpty().withMessage('National ID is required'),
     body('account_number').trim().matches(/^NyWs-\d+$/).withMessage('Account number must start with NyWs- followed by digits'),
     body('phone').isMobilePhone('any').withMessage('Valid phone number is required'),
-    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email is required'), // checkFalsy allows empty string
+    body('email').optional({ checkFalsy: true }).isEmail().withMessage('Valid email is required'), 
     body('location').trim().notEmpty().withMessage('Location is required'),
     body('zone').isIn(['Nyakahura', 'G3', 'Githunguri']).withMessage('Zone must be one of: Nyakahura, G3, Githunguri'),
     body('connection_date').isISO8601().toDate().withMessage('Valid connection date is required'),
@@ -71,20 +71,17 @@ const ValidationSchemas = {
   ],
 
   // System settings validation
-  updateSettings: [
+   updateSettings: [
     body('settings').isObject().withMessage('Settings must be an object'),
     body('settings').custom((settings) => {
       if (!settings || typeof settings !== 'object') {
         throw new Error('Settings must be an object');
       }
-      // Check if settings object is not empty
       if (Object.keys(settings).length === 0) {
         throw new Error('At least one setting is required');
       }
       return true;
-    }),
-    body('settings.*.value').notEmpty().withMessage('Setting value is required'),
-    body('settings.*.description').optional().trim()
+    })
   ],
 
   // Password change validation

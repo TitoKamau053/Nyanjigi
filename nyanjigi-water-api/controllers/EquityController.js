@@ -63,39 +63,36 @@ async login(req, res) {
     }
   }
 
-  /**
+/**
    * STEP 1: Customer Validation
-   * Called by Equity API when customer initiates payment
-   * Equity needs to verify customer exists and get outstanding balance
+   * Only member_number is mandatory.
+   * Response restricted to specific fields.
    */
-  async validateCustomer(req, res) {
+async validateCustomer(req, res) {
     try {
-      const { member_number, phone } = req.body;
+      let { member_number, phone } = req.body;
 
-      // Log validation request for audit
+      // Safe trim for phone to handle " " as empty
+      if (typeof phone === 'string') {
+        phone = phone.trim();
+      }
+
       console.log('[Equity Validation]', {
         member_number,
         phone: phone || 'not provided',
         timestamp: new Date().toISOString()
       });
 
-      // Validate input
       if (!member_number) {
         return res.status(400).json({
           success: false,
-          message: 'Member number (account number) is required'
+          message: 'Member number is required'
         });
       }
 
-      // Find customer by account number
+      // Find customer
       const customerQuery = `
-        SELECT 
-          id, 
-          account_number, 
-          full_name, 
-          phone, 
-          is_active,
-          customer_type
+        SELECT id, account_number, full_name, phone, is_active
         FROM customers 
         WHERE account_number = ? 
         LIMIT 1
@@ -104,7 +101,6 @@ async login(req, res) {
       const customers = await executeQuery(customerQuery, [member_number]);
 
       if (!customers || customers.length === 0) {
-        console.log('[Equity Validation] Customer not found:', member_number);
         return res.status(404).json({
           success: false,
           message: 'Customer account not found'
@@ -113,102 +109,35 @@ async login(req, res) {
 
       const customer = customers[0];
 
-      // Check if customer is active
-      if (!customer.is_active) {
-        console.log('[Equity Validation] Inactive account:', member_number);
-        return res.status(403).json({
-          success: false,
-          message: 'Customer account is inactive. Please contact support.'
-        });
-      }
-
-      // Optional: Verify phone number if provided
-      if (phone && customer.phone !== phone) {
-        console.warn('[Equity Validation] Phone mismatch:', {
-          provided: phone,
-          registered: customer.phone
-        });
-        // Don't fail, just log warning
-      }
-
       // Calculate total outstanding balance
       const balanceQuery = `
-        SELECT 
-          COALESCE(SUM(outstanding), 0) as total_outstanding 
+        SELECT COALESCE(SUM(outstanding), 0) as total_outstanding 
         FROM (
-          -- Outstanding bills
           SELECT SUM(total_amount) as outstanding
           FROM bills
-          WHERE customer_id = ? 
-          AND status IN ('pending', 'overdue', 'partially_paid')
-          
+          WHERE customer_id = ? AND status IN ('pending', 'overdue', 'partially_paid')
           UNION ALL
-          
-          -- Outstanding fines
           SELECT SUM(amount) as outstanding
           FROM applied_fines
-          WHERE customer_id = ? 
-          AND status = 'pending'
-          
+          WHERE customer_id = ? AND status = 'pending'
           UNION ALL
-          
-          -- Outstanding contributions
           SELECT SUM(amount_required - amount_paid) as outstanding
           FROM contributions
-          WHERE customer_id = ? 
-          AND status IN ('pending', 'partial', 'overdue')
+          WHERE customer_id = ? AND status IN ('pending', 'partial', 'overdue')
         ) as totals
       `;
 
-      const balanceResult = await executeQuery(balanceQuery, [
-        customer.id, 
-        customer.id, 
-        customer.id
-      ]);
-      
+      const balanceResult = await executeQuery(balanceQuery, [customer.id, customer.id, customer.id]);
       const outstandingBalance = parseFloat(balanceResult[0]?.total_outstanding || 0);
 
-      // Get breakdown for customer info
-      const breakdownQuery = `
-        SELECT 
-          COALESCE(SUM(CASE WHEN status IN ('pending', 'overdue', 'partially_paid') THEN total_amount ELSE 0 END), 0) as bills,
-          COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = ? AND status = 'pending'), 0) as fines,
-          COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = ? AND status IN ('pending', 'partial', 'overdue')), 0) as contributions
-        FROM bills
-        WHERE customer_id = ?
-      `;
-      
-      const breakdownResult = await executeQuery(breakdownQuery, [
-        customer.id, 
-        customer.id, 
-        customer.id
-      ]);
-      
-      const breakdown = breakdownResult[0];
-
-      // Success response to Equity
+      // STRICT Response Structure
       const response = {
-        success: true,
-        data: {
-          member_id: customer.id,
-          member_number: customer.account_number,
-          name: customer.full_name,
-          phone: customer.phone,
-          customer_type: customer.customer_type,
-          status: 'active',
-          outstanding_balance: parseFloat(outstandingBalance.toFixed(2)),
-          balance_breakdown: {
-            bills: parseFloat(breakdown.bills || 0),
-            fines: parseFloat(breakdown.fines || 0),
-            contributions: parseFloat(breakdown.contributions || 0)
-          }
-        }
+        name: customer.full_name,
+        member_number: customer.account_number,
+        outstanding_balance: parseFloat(outstandingBalance.toFixed(2)),
+        phone: customer.phone || "",
+        status: customer.is_active ? "Active" : "Inactive"
       };
-
-      console.log('[Equity Validation] Success:', {
-        member_number,
-        outstanding: outstandingBalance
-      });
 
       return res.status(200).json(response);
 
@@ -216,16 +145,13 @@ async login(req, res) {
       console.error('[Equity Validation] Error:', error);
       return res.status(500).json({
         success: false,
-        message: 'System error during validation',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        message: 'System error during validation'
       });
     }
   }
-
   /**
    * STEP 2: Payment Callback Handler
-   * Called by Equity API after customer completes payment
-   * Equity sends payment confirmation with transaction details
+   * Returns responseCode and responseMessage.
    */
   async handlePaymentCallback(req, res) {
     try {
@@ -241,42 +167,28 @@ async login(req, res) {
         narrative
       } = req.body;
 
-      // Log callback received
       console.log('[Equity Callback] Received:', {
         transaction_id,
         member_number,
         amount,
-        status,
-        timestamp: new Date().toISOString()
+        status
       });
 
-      // Validate required fields
-      const requiredFields = {
-        transaction_id: 'Transaction ID',
-        member_number: 'Member/Account number',
-        amount: 'Payment amount',
-        payment_method: 'Payment method',
-      };
-
-      for (const [field, label] of Object.entries(requiredFields)) {
-        if (!req.body[field]) {
-          console.error(`[Equity Callback] Missing field: ${field}`);
-          return res.status(400).json({
-            success: false,
-            message: `Missing required field: ${label}`
-          });
-        }
+      // Basic validation
+      if (!transaction_id || !member_number || !amount) {
+         return res.status(400).json({
+            responseCode: "400",
+            responseMessage: "Missing required fields"
+         });
       }
 
-      // Acknowledge receipt immediately to Equity (prevents timeout)
-      res.status(202).json({
-        success: true,
-        message: 'Payment callback received and queued for processing',
-        transaction_id: transaction_id,
-        received_at: new Date().toISOString()
+      // 1. Acknowledge receipt immediately with specific keys
+      res.status(200).json({
+        responseCode: "200",
+        responseMessage: "Success"
       });
 
-      // Process payment asynchronously (don't block Equity's callback)
+      // 2. Process payment asynchronously
       this.processEquityPayment({
         transaction_id,
         member_number,
@@ -293,14 +205,146 @@ async login(req, res) {
 
     } catch (error) {
       console.error('[Equity Callback] Handler error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      // Even in error, try to return valid JSON if possible, or let Express handle 500
+      if (!res.headersSent) {
+        return res.status(500).json({
+          responseCode: "500",
+          responseMessage: "Internal Server Error"
+        });
+      }
     }
   }
 
+  /**
+   * STEP 3: Process Payment (Async)
+   * (Kept logic mostly same, ensuring stability)
+   */
+  async processEquityPayment(callbackData) {
+    try {
+      const {
+        transaction_id,
+        member_number,
+        amount,
+        reference_type,
+        payment_method,
+        status,
+        timestamp
+      } = callbackData;
+
+      console.log('[Equity Process] Starting:', transaction_id);
+
+      let finalStatus = 'completed';
+      if (status && (status.toLowerCase() === 'failed' || status.toLowerCase() === 'reversed')) {
+         finalStatus = 'failed';
+      }
+
+      if (finalStatus === 'failed') {
+        await this.logPaymentAttempt({
+          transaction_id,
+          member_number,
+          amount,
+          payment_method,
+          status: 'failed',
+          reason: `Payment status: ${status}`,
+          timestamp
+        });
+        return;
+      }
+
+      // Find customer
+      const customerQuery = `SELECT id, account_number, full_name, phone FROM customers WHERE account_number = ? LIMIT 1`;
+      const customers = await executeQuery(customerQuery, [member_number]);
+
+      if (!customers || customers.length === 0) {
+        console.error('[Equity Process] Customer not found:', member_number);
+        await this.logPaymentAttempt({
+          transaction_id,
+          member_number,
+          amount,
+          payment_method,
+          status: 'error',
+          reason: 'Customer not found',
+          timestamp
+        });
+        return;
+      }
+
+      const customer = customers[0];
+
+      // Idempotency Check
+      const duplicateCheck = `SELECT id FROM payments WHERE transaction_id = ? LIMIT 1`;
+      const existing = await executeQuery(duplicateCheck, [`EQ-${transaction_id}`]);
+
+      if (existing && existing.length > 0) {
+        console.warn('[Equity Process] Duplicate payment:', transaction_id);
+        return;
+      }
+
+      // Create Payment
+      const paymentInsertQuery = `
+        INSERT INTO payments (
+          customer_id, transaction_id, equity_reference, equity_member_number,
+          payment_method, amount, payment_date, status, equity_callback_response, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const paymentDate = moment(timestamp).isValid() ? moment(timestamp).toDate() : new Date();
+
+      const insertResult = await executeQuery(paymentInsertQuery, [
+        customer.id,
+        `EQ-${transaction_id}`,
+        transaction_id,
+        member_number,
+        `equity_${payment_method}`,
+        parseFloat(amount),
+        paymentDate,
+        finalStatus,
+        JSON.stringify(callbackData),
+        callbackData.narrative || `Equity payment via ${payment_method}`
+      ]);
+
+      const paymentId = insertResult.insertId;
+
+      // Allocate
+      await this.allocatePayment(paymentId, customer.id, parseFloat(amount), reference_type);
+
+      // Send SMS
+      const NotificationService = require('../services/NotificationService');
+      await NotificationService.sendNotification(
+        { id: customer.id, phone: customer.phone, email: customer.email },
+        'payment_received',
+        {
+          customer_name: customer.full_name,
+          amount: amount,
+          transaction_id: transaction_id,
+          payment_date: new Date().toLocaleString(),
+          account_number: customer.account_number
+        }
+      );
+
+      await this.logPaymentAttempt({
+        transaction_id,
+        member_number,
+        amount,
+        payment_method,
+        status: 'processed',
+        payment_id: paymentId,
+        timestamp
+      });
+
+    } catch (error) {
+      console.error('[Equity Process] Error:', error);
+      await this.logPaymentAttempt({
+        transaction_id: callbackData.transaction_id,
+        member_number: callbackData.member_number,
+        amount: callbackData.amount,
+        payment_method: callbackData.payment_method,
+        status: 'error',
+        reason: error.message,
+        timestamp: callbackData.timestamp
+      });
+    }
+  }
   /**
    * STEP 3: Process Payment (Async)
    * Allocates payment to bills, fines, and contributions
