@@ -153,7 +153,7 @@ async validateCustomer(req, res) {
    * STEP 2: Payment Callback Handler
    * Returns responseCode and responseMessage.
    */
-async handlePaymentCallback(req, res) {
+  async handlePaymentCallback(req, res) {
     try {
       const {
         transaction_id,
@@ -171,16 +171,19 @@ async handlePaymentCallback(req, res) {
         transaction_id,
         member_number,
         amount,
-        status
+        customer_name
       });
 
-      if (!transaction_id || !member_number || !amount) {
+      // 1. Mandatory Field Validation
+      // Ensuring only these fields are strictly validated as required.
+      if (!transaction_id || !member_number || !amount || !customer_name) {
          return res.status(400).json({
             responseCode: "400",
             responseMessage: "Missing required fields"
          });
       }
 
+      // 2. Synchronous Duplicate Check
       const duplicateCheck = `
         SELECT id FROM payments 
         WHERE transaction_id = ? 
@@ -195,21 +198,20 @@ async handlePaymentCallback(req, res) {
 
       if (existing && existing.length > 0) {
          console.warn('[Equity Callback] Duplicate detected:', transaction_id);
-         // Return error immediately without processing
-         return res.status(200).json({ // Keep 200 HTTP status but send error code in body
-            responseCode: "409", // Using 409 Conflict or standard error code
+         return res.status(200).json({
+            responseCode: "409",
             responseMessage: "Similar payment appears in our system"
          });
       }
-   
 
-      // 1. Acknowledge receipt
+      // 3. Acknowledge Receipt
       res.status(200).json({
         responseCode: "200",
         responseMessage: "Success"
       });
 
-      // 2. Process payment asynchronously (now safe from duplicates)
+      // 4. Process Payment Asynchronously
+      // All other fields (reference_type, narrative, etc.) are passed through here
       this.processEquityPayment({
         transaction_id,
         member_number,

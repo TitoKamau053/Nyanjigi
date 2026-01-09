@@ -30,10 +30,11 @@ class NotificationService {
         success: false
       };
 
+      // 1. Send SMS
       if (this.settings.sms_enabled && recipient.phone) {
         try {
-          // FIX: Handle manual test messages directly without template lookup
           if (notificationType === 'manual_sms') {
+             // Handle manual test messages directly
              const messageContent = variables.message || 'Test Notification';
              results.sms = await SMSService.sendSMS(recipient.phone, messageContent);
           } else {
@@ -50,8 +51,17 @@ class NotificationService {
         }
       }
 
+      // 2. Send Email (Placeholder)
       if (this.settings.email_enabled && recipient.email) {
         results.email = { success: false, error: 'Email service not implemented' };
+      }
+
+      // 3. Log the Notification
+      // Extract the actual message sent for logging purposes
+      let messageContent = variables.message || '';
+      if (!messageContent && notificationType !== 'manual_sms') {
+          // For templates, we might store a description or the template name as fallback
+          messageContent = `Template: ${notificationType}`;
       }
 
       await this.logNotification(
@@ -61,7 +71,8 @@ class NotificationService {
         'sms',                  
         results.sms?.success ? 'sent' : 'failed', 
         results,                
-        variables               
+        variables,
+        messageContent // Pass message content to logger
       );
       
       results.success = Boolean(results.sms?.success || results.email?.success);
@@ -77,129 +88,134 @@ class NotificationService {
     }
   }
 
+  // ... (sendBulkNotifications and sendBillingCycleMessages remain unchanged) ...
   async sendBulkNotifications(recipients, notificationType, variableGenerator, options = {}) {
+    // Keep your existing code for this method
     try {
-      await this.initialize();
-
-      const results = [];
-      const batchSize = options.batchSize || 50;
-
-      for (let i = 0; i < recipients.length; i += batchSize) {
-        const batch = recipients.slice(i, i + batchSize);
-
-        const batchResults = await Promise.allSettled(
-          batch.map(async (recipient) => {
-            const variables = (typeof variableGenerator === 'function')
-              ? variableGenerator(recipient)
-              : variableGenerator;
-            return this.sendNotification(recipient, notificationType, variables, options);
-          })
-        );
-
-        batchResults.forEach((result, index) => {
-          const recipient = batch[index];
-          if (result.status === 'fulfilled') {
-            results.push({
-              recipient,
-              result: result.value,
-              success: result.value.success
-            });
-          } else {
-            results.push({
-              recipient,
-              result: { success: false, error: result.reason?.message || 'Unknown error' },
-              success: false
-            });
+        await this.initialize();
+  
+        const results = [];
+        const batchSize = options.batchSize || 50;
+  
+        for (let i = 0; i < recipients.length; i += batchSize) {
+          const batch = recipients.slice(i, i + batchSize);
+  
+          const batchResults = await Promise.allSettled(
+            batch.map(async (recipient) => {
+              const variables = (typeof variableGenerator === 'function')
+                ? variableGenerator(recipient)
+                : variableGenerator;
+              return this.sendNotification(recipient, notificationType, variables, options);
+            })
+          );
+  
+          batchResults.forEach((result, index) => {
+            const recipient = batch[index];
+            if (result.status === 'fulfilled') {
+              results.push({
+                recipient,
+                result: result.value,
+                success: result.value.success
+              });
+            } else {
+              results.push({
+                recipient,
+                result: { success: false, error: result.reason?.message || 'Unknown error' },
+                success: false
+              });
+            }
+          });
+  
+          if (i + batchSize < recipients.length) {
+            await this.delay(options.batchDelayMs || 1000);
           }
-        });
-
-        if (i + batchSize < recipients.length) {
-          await this.delay(options.batchDelayMs || 1000);
         }
+  
+        const summary = {
+          total: results.length,
+          successful: results.filter(r => r.success).length,
+          failed: results.filter(r => !r.success).length
+        };
+  
+        return {
+          success: true,
+          results,
+          summary
+        };
+      } catch (error) {
+        console.error('Bulk notification failed:', error);
+        return {
+          success: false,
+          error: error.message,
+          results: []
+        };
       }
-
-      const summary = {
-        total: results.length,
-        successful: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length
-      };
-
-      return {
-        success: true,
-        results,
-        summary
-      };
-    } catch (error) {
-      console.error('Bulk notification failed:', error);
-      return {
-        success: false,
-        error: error.message,
-        results: []
-      };
-    }
   }
 
   async sendBillingCycleMessages(payloads = []) {
+    // Keep your existing code for this method
     if (!payloads || payloads.length === 0) {
-      return {
-        success: true,
-        summary: { total: 0, successful: 0, failed: 0 }
-      };
-    }
-
-    await this.initialize();
-    const results = [];
-
-    for (const payload of payloads) {
-      try {
-        if (!payload.phone) {
+        return {
+          success: true,
+          summary: { total: 0, successful: 0, failed: 0 }
+        };
+      }
+  
+      await this.initialize();
+      const results = [];
+  
+      for (const payload of payloads) {
+        try {
+          if (!payload.phone) {
+            results.push({
+              customer_id: payload.customer_id,
+              success: false,
+              error: 'Missing customer phone number'
+            });
+            continue;
+          }
+  
+          const message = this.composeBillingMessage(payload);
+          const smsResult = await SMSService.sendSMS(payload.phone, message);
+  
+          await this.logNotification(
+            payload.customer_id,  
+            payload.phone,        
+            'billing_cycle',      
+            'sms',                
+            smsResult.success ? 'sent' : 'failed', 
+            smsResult,            
+            payload,
+            message // Pass the composed message
+          );
+  
+          results.push({
+            customer_id: payload.customer_id,
+            success: smsResult.success,
+            response: smsResult
+          });
+        } catch (error) {
+          console.error('Billing SMS failed:', error);
           results.push({
             customer_id: payload.customer_id,
             success: false,
-            error: 'Missing customer phone number'
+            error: error.message
           });
-          continue;
         }
-
-        const message = this.composeBillingMessage(payload);
-        const smsResult = await SMSService.sendSMS(payload.phone, message);
-
-        await this.logNotification(
-          payload.customer_id,  
-          payload.phone,        
-          'billing_cycle',      
-          'sms',                
-          smsResult.success ? 'sent' : 'failed', 
-          smsResult,            
-          payload               
-        );
-
-        results.push({
-          customer_id: payload.customer_id,
-          success: smsResult.success,
-          response: smsResult
-        });
-      } catch (error) {
-        console.error('Billing SMS failed:', error);
-        results.push({
-          customer_id: payload.customer_id,
-          success: false,
-          error: error.message
-        });
       }
-    }
-
-    return {
-      success: true,
-      summary: {
-        total: results.length,
-        successful: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length
-      },
-      results
-    };
+  
+      return {
+        success: true,
+        summary: {
+          total: results.length,
+          successful: results.filter(r => r.success).length,
+          failed: results.filter(r => !r.success).length
+        },
+        results
+      };
   }
 
+  // ... (composeBillingMessage, toCurrency, delay, processScheduledNotifications remain unchanged) ...
   composeBillingMessage(payload) {
     const flatRate = this.toCurrency(payload.current_month_charge);
     const outstandingBills = this.toCurrency(payload.previous_outstanding);
@@ -225,39 +241,10 @@ class NotificationService {
     return `KES ${value.toFixed(2)}`;
   }
 
-  async logNotification(recipientId, recipientPhone, notificationType, channel, status, payload = null, metadata = null) {
-    try {
-      // Handle valid recipient IDs (including 0 for admin)
-      const validRecipientId = (recipientId === 0 || recipientId) ? recipientId : null;
-      
-      const query = `
-          INSERT INTO notifications_sent
-            (recipient_id, recipient_phone, recipient, notification_type, channel, status, payload, metadata)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-      
-      const recipient = recipientPhone || `User ${validRecipientId}`;
-      
-      await executeQuery(query, [
-        validRecipientId,
-        recipientPhone || null,
-        recipient,
-        notificationType || null,
-        channel || null,
-        status || null,
-        payload ? JSON.stringify(payload) : null,
-        metadata ? JSON.stringify(metadata) : null
-      ]);
-    } catch (error) {
-      console.error('Notification log failed:', error.message);
-    }
-  }
-
   delay(ms = 1000) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // Process scheduled notifications
   async processScheduledNotifications() {
     try {
       const tables = await executeQuery("SHOW TABLES LIKE 'scheduled_notifications'");
@@ -306,6 +293,41 @@ class NotificationService {
     } catch (error) {
       console.error('Error processing scheduled notifications:', error);
       return { processed: 0, successful: 0, failed: 0, error: error.message };
+    }
+  }
+
+  /**
+   * Updated to include the 'message' column
+   */
+  async logNotification(recipientId, recipientPhone, notificationType, channel, status, payload = null, metadata = null, messageContent = null) {
+    try {
+      const validRecipientId = (recipientId === 0 || recipientId) ? recipientId : null;
+      
+      const query = `
+          INSERT INTO notifications_sent
+            (recipient_id, recipient_phone, recipient, notification_type, channel, status, payload, metadata, message)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+      
+      const recipient = recipientPhone || `User ${validRecipientId}`;
+      
+      // Ensure payload/metadata are strings
+      const payloadStr = payload ? JSON.stringify(payload) : null;
+      const metadataStr = metadata ? JSON.stringify(metadata) : null;
+
+      await executeQuery(query, [
+        validRecipientId,
+        recipientPhone || null,
+        recipient,
+        notificationType || null,
+        channel || null,
+        status || null,
+        payloadStr,
+        metadataStr,
+        messageContent || ''
+      ]);
+    } catch (error) {
+      console.error('Notification log failed:', error.message);
     }
   }
 }
