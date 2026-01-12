@@ -100,7 +100,7 @@ router.post('/callback',
     body('member_number').trim().notEmpty().withMessage('Member number is required'),
     body('customer_name').trim().notEmpty().withMessage('Customer name is required'),
     body('amount').isFloat({ min: 0.01 }).withMessage('Valid amount is required'),
-body('payment_method').optional(), 
+    body('payment_method').optional(), 
     body('status').optional()
   ],
   handleValidationErrors,
