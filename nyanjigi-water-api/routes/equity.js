@@ -11,7 +11,7 @@ const router = express.Router();
 const EQUITY_WHITELIST = [
   '196.216.242.224', '196.216.242.223', '196.216.242.163', 
   '196.216.242.171', '20.50.237.39', '20.50.237.229',
-  '127.0.0.1', '72.61.196.95', '41.139.204.135'
+  '127.0.0.1', '72.61.196.95', '41.139.204.135','105.161.105.244',
 ];
 
 // LAYER 1: IP Whitelist Middleware
@@ -93,15 +93,22 @@ router.post('/validate-customer',
 
 // Payment callback endpoint
 router.post('/callback',
-  checkWhitelist,     // 1. IP Check
-  verifyEquityToken,  // 2. Token Check
+  checkWhitelist,
+  verifyEquityToken,
   [
-    body('transaction_id').trim().notEmpty().withMessage('Transaction ID is required'),
-    body('member_number').trim().notEmpty().withMessage('Member number is required'),
-    body('customer_name').trim().notEmpty().withMessage('Customer name is required'),
+    // Equity sends 'tranId', so we validate that or transaction_id
+    body('tranId').optional().trim(),
+    body('transaction_id').optional().trim(),
+    
+    // Equity sends 'billNumber', we map this to member_number
+    body('billNumber').optional().trim(),
+    body('member_number').optional().trim(),
+    
     body('amount').isFloat({ min: 0.01 }).withMessage('Valid amount is required'),
-    body('payment_method').optional(), 
-    body('status').optional()
+    
+    // They send 'channel', we map to payment_method
+    body('channel').optional(),
+    body('payment_method').optional()
   ],
   handleValidationErrors,
   asyncHandler(EquityController.handlePaymentCallback.bind(EquityController))

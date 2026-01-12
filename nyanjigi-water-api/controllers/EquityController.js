@@ -149,34 +149,31 @@ async validateCustomer(req, res) {
       });
     }
   }
-  /**
+/**
    * STEP 2: Payment Callback Handler
    * Returns responseCode and responseMessage.
    */
   async handlePaymentCallback(req, res) {
     try {
-      const {
-        transaction_id,
-        member_number,
-        customer_name,
-        amount,
-        reference_type,
-        payment_method,
-        status,
-        timestamp,
-        narrative
-      } = req.body;
+      // [FIX] Destructure the fields Equity actually sends (based on their email)
+      // They send: billerCode, billNumber, account, amount, tranId, tranDate, channel
+      const rawBody = req.body;
 
-      console.log('[Equity Callback] Received:', {
-        transaction_id,
-        member_number,
-        amount,
-        customer_name
-      });
+      console.log('[Equity Callback] Raw Body:', JSON.stringify(rawBody));
+
+      // Map Equity fields to our internal fields
+      const transaction_id = rawBody.tranId || rawBody.transaction_id;
+      const member_number = rawBody.billNumber || rawBody.member_number;
+      const amount = rawBody.amount;
+      const payment_method = rawBody.channel || rawBody.payment_method;
+      const timestamp = rawBody.tranDate || rawBody.timestamp;
+      
+      // Note: Equity DOES NOT send customer_name, so we cannot require it here.
+      // We will fetch it from the DB using the member_number (billNumber).
 
       // 1. Mandatory Field Validation
-      // Ensuring only these fields are strictly validated as required.
-      if (!transaction_id || !member_number || !amount || !customer_name) {
+      if (!transaction_id || !member_number || !amount) {
+         console.error('[Equity Callback] Missing fields:', { transaction_id, member_number, amount });
          return res.status(400).json({
             responseCode: "400",
             responseMessage: "Missing required fields"
@@ -200,7 +197,7 @@ async validateCustomer(req, res) {
          console.warn('[Equity Callback] Duplicate detected:', transaction_id);
          return res.status(200).json({
             responseCode: "409",
-            responseMessage: "Similar payment appears in our system"
+            responseMessage: "Duplicate transaction" // Updated to match their doc example
          });
       }
 
@@ -211,17 +208,16 @@ async validateCustomer(req, res) {
       });
 
       // 4. Process Payment Asynchronously
-      // All other fields (reference_type, narrative, etc.) are passed through here
       this.processEquityPayment({
         transaction_id,
         member_number,
-        customer_name,
+        // customer_name, // Removed: We don't have this yet, we'll find it in processEquityPayment
         amount,
-        reference_type: reference_type || 'general',
-        payment_method,
-        status,
+        reference_type: 'general',
+        payment_method: payment_method || 'Equity',
+        status: 'completed',
         timestamp: timestamp || new Date().toISOString(),
-        narrative
+        narrative: `Equity Payment Ref: ${transaction_id}`
       }).catch(error => {
         console.error('[Equity Callback] Processing error:', error);
       });
@@ -274,7 +270,12 @@ async validateCustomer(req, res) {
       }
 
       // Find customer
-      const customerQuery = `SELECT id, account_number, full_name, phone FROM customers WHERE account_number = ? LIMIT 1`;
+      const customerQuery = `
+        SELECT id, account_number, full_name, phone, email
+        FROM customers 
+        WHERE account_number = ? 
+        LIMIT 1
+      `;
       const customers = await executeQuery(customerQuery, [member_number]);
 
       if (!customers || customers.length === 0) {
