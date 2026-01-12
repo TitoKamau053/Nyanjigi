@@ -2,9 +2,8 @@
 import { api } from './api';
 
 export const adminService = {
-  // ========================================
+
   // AUTHENTICATION
-  // ========================================
   login: (credentials: { username: string; password: string }) => 
     api.post('/auth/admin/login', credentials),
   
@@ -17,10 +16,8 @@ export const adminService = {
   changePassword: (data: { current_password: string; new_password: string }) => 
     api.post('/auth/admin/change-password', data),
 
-  // ========================================
+
   // CUSTOMER MANAGEMENT
-  // ========================================
-  
   // Get all customers with filters and pagination
   getCustomers: (params?: { 
     page?: number; 
@@ -54,7 +51,7 @@ export const adminService = {
   getCustomerById: (id: number) => 
     api.get(`/customers/${id}`),
 
-// Create new customer
+  // Create new customer (Updated with initial_balance)
   createCustomer: (data: { 
     full_name: string; 
     national_id: string;      
@@ -65,6 +62,7 @@ export const adminService = {
     zone: 'Nyakahura' | 'G3' | 'Githunguri';
     connection_date: string; 
     customer_type: 'normal' | 'institution'; 
+    initial_balance?: number; // [FIX] Added this field
   }) => api.post('/customers', data),
 
   // Update customer information
@@ -83,10 +81,12 @@ export const adminService = {
   resetCustomerPassword: (id: number) => 
     api.post(`/customers/${id}/reset-password`),
 
-  // ========================================
-  // BILLING MANAGEMENT
-  // ========================================
+  // Adjust balance for a customer
+  adjustCustomerBalance: (id: number, data: { amount: number; notes?: string }) => 
+    api.post(`/customers/${id}/adjust-balance`, data),
 
+
+  // BILLING MANAGEMENT
   // Generate monthly bills for all customers
   generateBills: (data: { billing_month: string }) => // YYYY-MM-DD
     api.post('/bills/generate', data),
@@ -178,10 +178,8 @@ export const adminService = {
   getCustomerBillSummary: (customerId: number) => 
     api.get(`/bills/customer/${customerId}/summary`),
 
-  // ========================================
-  // FINES MANAGEMENT
-  // ========================================
 
+  // FINES MANAGEMENT
   // Get all applied fines
   getFines: (params?: { 
     page?: number; 
@@ -225,10 +223,8 @@ export const adminService = {
     status: 'pending' | 'paid' | 'waived';
   }) => api.put(`/fines/${fineId}/status`, data),
 
-  // ========================================
-  // PAYMENT MANAGEMENT (Equity Bank)
-  // ========================================
 
+  // PAYMENT MANAGEMENT (Equity Bank)
   // Get all payment transactions
   getPayments: (params?: { 
     page?: number; 
@@ -253,10 +249,8 @@ export const adminService = {
   getPaymentMethods: () => 
     api.get('/payments/methods'),
 
-  // ========================================
-  // EQUITY BANK INTEGRATION
-  // ========================================
 
+  // EQUITY BANK INTEGRATION
   // Get customer Equity payment history
   getEquityPaymentHistory: (customerId: number, params?: { page?: number; limit?: number }) => {
     const query = new URLSearchParams();
@@ -265,10 +259,8 @@ export const adminService = {
     return api.get(`/equity/payment-history/${customerId}?${query.toString()}`);
   },
 
-  // ========================================
-  // CONTRIBUTION MANAGEMENT
-  // ========================================
 
+  // CONTRIBUTION MANAGEMENT
   // Generate monthly contributions for all customers
   generateContributions: (data: { contribution_month: string }) => // YYYY-MM-DD
     api.post('/contributions/generate', data),
@@ -324,9 +316,8 @@ export const adminService = {
   markContributionPaid: (id: number) => 
     api.post(`/contributions/${id}/mark-paid`),
 
-// ========================================
+
   // SYSTEM SETTINGS & MAINTENANCE
-  // ========================================
   getSettings: () => api.get('/settings'),
   
   getSettingsValidation: () => api.get('/settings/validation'),
@@ -334,7 +325,7 @@ export const adminService = {
   bulkUpdateSettings: (data: { settings: Record<string, any> }) => 
     api.put('/settings/bulk', data),
 
-  // Manual System Actions (New)
+  // Manual System Actions 
   runSystemMaintenance: () => api.post('/settings/maintenance/run'),
   
   getSecurityLogs: () => api.get('/settings/logs/security'),
@@ -361,9 +352,8 @@ export const adminService = {
   
   testEquityConnection: () => api.post('/settings/payments/test-equity'),
 
-  // ========================================
+
   // DASHBOARD & ANALYTICS
-  // ========================================
   getDashboard: () => api.get('/admin/dashboard'),
   
   getRevenueAnalytics: (period: string) => api.get(`/admin/revenue-analytics?period=${period}`),
@@ -374,9 +364,8 @@ export const adminService = {
   
   getActivityLog: (page: number = 1, limit: number = 20) => api.get(`/admin/activity-log?page=${page}&limit=${limit}`), // Mapped to AdminController.getActivityLog
 
-  // ========================================
+
   // NOTIFICATIONS (SMS)
-  // ========================================
   getSmsStatus: () => api.get('/admin/sms/status'),
   sendSms: (data: any) => api.post('/admin/sms/send', data),
 };

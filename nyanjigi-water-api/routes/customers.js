@@ -1,6 +1,6 @@
 const express = require('express');
 const { CustomerController } = require('../controllers');
-const { verifyAdmin, verifyCustomer } = require('../middleware/auth');
+const { verifyAdmin, verifyCustomer, verifyToken } = require('../middleware/auth');
 const { handleValidationErrors, asyncHandler } = require('../middleware/errorHandler');
 const ValidationSchemas = require('../utils/validation');
 
@@ -105,6 +105,11 @@ router.get('/stats',
   verifyAdmin,
   asyncHandler(CustomerController.getCustomerStats)
 );
+
+// Adjust customer balance (Admin only)
+router.post('/:customerId/adjust-balance', 
+  verifyToken, 
+  verifyAdmin, CustomerController.adjustBalance);
 
 /**
  * @route   GET /api/v1/customers/search

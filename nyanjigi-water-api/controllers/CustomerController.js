@@ -2,6 +2,7 @@ const { Customer, Bill, Payment, Contribution, Fine } = require('../models');
 const AuthUtils = require('../utils/auth');
 const ApiResponse = require('../utils/response');
 const SMSService = require('../services/SMSService');
+const { executeQuery } = require('../config/database');
 
 /**
  * Customer Controller - Handles customer authentication and account management
@@ -277,16 +278,62 @@ class CustomerController {
     }
   }
 
-  // ===== ADMIN FUNCTIONS FOR CUSTOMER MANAGEMENT =====
+  // ADMIN FUNCTIONS FOR CUSTOMER MANAGEMENT
 
   // Create new customer (Admin only)
-  static async createCustomer(req, res) {
+static async createCustomer(req, res) {
     try {
-      const customerData = req.body;
+      const { initial_balance, ...customerData } = req.body; // Extract initial_balance
       const newCustomer = await Customer.createCustomer(customerData);
 
-      // Don't return the plain password in production logs
       const { plain_password, ...customerResponse } = newCustomer;
+
+      //  HANDLE INITIAL BALANCE
+      if (initial_balance && parseFloat(initial_balance) !== 0) {
+        const amount = parseFloat(initial_balance);
+        const date = new Date().toISOString().slice(0, 10);
+
+        if (amount > 0) {
+          // POSITIVE: It's a DEBT (Create a Bill)
+          const billQuery = `
+            INSERT INTO bills (
+              customer_id, bill_number, billing_period_start, billing_period_end,
+              current_charges, total_amount, due_date, status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'Opening Balance - Debt')
+          `;
+          await executeQuery(billQuery, [
+            newCustomer.id,
+            `OPEN-${newCustomer.account_number}`, // Unique Bill Ref
+            date, date, // Period
+            amount, amount, // Amounts
+            date // Due Immediately
+          ]);
+
+        } else {
+          // NEGATIVE: It's a CREDIT (Create a Payment)
+          const absAmount = Math.abs(amount);
+          const paymentQuery = `
+            INSERT INTO payments (
+              customer_id, transaction_id, payment_method, amount, 
+              payment_date, status, notes
+            ) VALUES (?, ?, 'manual_entry', ?, NOW(), 'completed', 'Opening Balance - Credit')
+          `;
+          
+          const result = await executeQuery(paymentQuery, [
+            newCustomer.id,
+            `OPEN-${newCustomer.account_number}`,
+            absAmount
+          ]);
+
+          // Allocate as Advance
+          const allocQuery = `
+            INSERT INTO payment_allocations (payment_id, allocation_type, amount, notes)
+            VALUES (?, 'advance', ?, 'Initial System Credit')
+          `;
+          await executeQuery(allocQuery, [result.insertId, absAmount]);
+        }
+      }
+      //END INITIAL BALANCE
 
       // Send SMS with login credentials if customer has phone number
       if (customerResponse.phone && plain_password) {
@@ -301,8 +348,9 @@ class CustomerController {
 
       return ApiResponse.success(res, {
         customer: customerResponse,
-        temporary_password: plain_password // Only for initial setup
+        temporary_password: plain_password
       }, 'Customer created successfully', 201);
+
     } catch (error) {
       if (error.code === 'ER_DUP_ENTRY') {
         if (error.message.includes('account_number')) {
@@ -317,6 +365,70 @@ class CustomerController {
     }
   }
 
+  // Adjust Balance for Existing Customers
+  static async adjustBalance(req, res) {
+    try {
+      const { customerId } = req.params;
+      const { amount, notes } = req.body; // Amount: Positive = Add Debt, Negative = Add Credit
+
+      if (!amount || parseFloat(amount) === 0) {
+        return ApiResponse.error(res, 'Valid amount is required', 400);
+      }
+
+      const valAmount = parseFloat(amount);
+      const customer = await Customer.findById(customerId);
+      if (!customer) return ApiResponse.notFound(res, 'Customer not found');
+
+      const timestamp = Date.now();
+      const date = new Date().toISOString().slice(0, 10);
+
+      if (valAmount > 0) {
+        // ADD DEBT (Create Bill)
+        const billQuery = `
+            INSERT INTO bills (
+              customer_id, bill_number, billing_period_start, billing_period_end,
+              current_charges, total_amount, due_date, status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        `;
+        await executeQuery(billQuery, [
+          customerId,
+          `ADJ-DR-${customer.account_number}-${timestamp}`,
+          date, date,
+          valAmount, valAmount,
+          date,
+          notes || 'Manual Balance Adjustment (Debit)'
+        ]);
+
+      } else {
+        // ADD CREDIT (Create Payment)
+        const absAmount = Math.abs(valAmount);
+        const paymentQuery = `
+            INSERT INTO payments (
+              customer_id, transaction_id, payment_method, amount, 
+              payment_date, status, notes
+            ) VALUES (?, ?, 'manual_entry', ?, NOW(), 'completed', ?)
+        `;
+        const result = await executeQuery(paymentQuery, [
+          customerId,
+          `ADJ-CR-${customer.account_number}-${timestamp}`,
+          absAmount,
+          notes || 'Manual Balance Adjustment (Credit)'
+        ]);
+
+        // Allocate as Advance
+        const allocQuery = `
+            INSERT INTO payment_allocations (payment_id, allocation_type, amount, notes)
+            VALUES (?, 'advance', ?, ?)
+        `;
+        await executeQuery(allocQuery, [result.insertId, absAmount, notes || 'Manual Credit Adjustment']);
+      }
+
+      return ApiResponse.success(res, null, 'Balance adjusted successfully');
+
+    } catch (error) {
+      return ApiResponse.error(res, error.message, 500);
+    }
+  }
   // Get all customers (Admin only)
   static async getAllCustomers(req, res) {
     try {

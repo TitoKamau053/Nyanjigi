@@ -20,7 +20,7 @@ router.get('/all',
   verifyAdmin,
   [
     query('page').optional().isInt({ min: 1 }).toInt(),
-    query('limit').optional().isInt({ min: 1, max: 1000 }).toInt(),
+    query('limit').optional().isInt({ min: 1, max: 20000 }).toInt(),
     query('customer_id').optional().isInt({ min: 1 }).toInt(),
     query('status').optional().isIn(['pending', 'completed', 'failed', 'cancelled']),
     query('date_from').optional().isISO8601().toDate(),

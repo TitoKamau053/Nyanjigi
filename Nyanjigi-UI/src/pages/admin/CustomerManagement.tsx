@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Plus, ToggleLeft, ToggleRight, RefreshCw } from 'lucide-react';
+import { Users, Search, Plus, ToggleLeft, ToggleRight, RefreshCw, Wallet } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -43,6 +43,101 @@ interface Pagination {
   has_prev: boolean;
 }
 
+const AdjustBalanceModal: React.FC<{ 
+  customer: Customer | null; 
+  onClose: () => void;
+  onSuccess: () => void;
+}> = ({ customer, onClose, onSuccess }) => {
+  const [amount, setAmount] = useState('');
+  const [type, setType] = useState<'debit' | 'credit'>('debit'); 
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { addToast } = useToast();
+
+  if (!customer) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      // Debit (Owe) = Positive, Credit (Overpaid) = Negative
+      const finalAmount = type === 'debit' ? parseFloat(amount) : -parseFloat(amount);
+      await adminService.adjustCustomerBalance(customer.id, { amount: finalAmount, notes });
+      addToast('Balance adjusted successfully', 'success');
+      onSuccess();
+      onClose();
+    } catch (error: any) {
+      addToast(error.response?.data?.message || 'Failed to adjust balance', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+        <h2 className="text-xl font-semibold mb-4">Adjust Balance</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          For: <span className="font-bold">{customer.full_name}</span>
+        </p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Action Type</label>
+            <div className="flex gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => setType('debit')}
+                className={`flex-1 py-2 rounded text-sm font-medium border ${
+                  type === 'debit' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-300 text-gray-600'
+                }`}
+              >
+                Add Debt (Bill)
+              </button>
+              <button
+                type="button"
+                onClick={() => setType('credit')}
+                className={`flex-1 py-2 rounded text-sm font-medium border ${
+                  type === 'credit' ? 'bg-green-50 border-green-500 text-green-700' : 'bg-white border-gray-300 text-gray-600'
+                }`}
+              >
+                Add Credit (Payment)
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Amount (KES)</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              required
+              min="1"
+              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Notes / Reason</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Reason for adjustment..."
+              rows={2}
+              className="mt-1 block w-full border border-gray-300 rounded-md p-2"
+            />
+          </div>
+          <div className="flex justify-end space-x-2 pt-4 border-t">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded border bg-gray-100">Cancel</button>
+            <button type="submit" disabled={loading} className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">
+              {loading ? 'Saving...' : 'Confirm'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => void }> = ({ onClose, onCustomerAdded }) => {
   const [fullName, setFullName] = useState('');
   const [nationalId, setNationalId] = useState('');
@@ -57,6 +152,10 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { addToast } = useToast();
+
+  // New state for opening balance
+  const [initialBalance, setInitialBalance] = useState('');
+  const [balanceType, setBalanceType] = useState<'none' | 'debt' | 'credit'>('none');
 
   // Handle Zone Change to pre-apply specific zero-padding prefix
   const handleZoneChange = (newZone: 'Nyakahura' | 'G3' | 'Githunguri') => {
@@ -102,6 +201,11 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
 
     setLoading(true);
     try {
+      // Calculate signed initial balance
+      let signedBalance = 0;
+      if (balanceType === 'debt') signedBalance = parseFloat(initialBalance);
+      if (balanceType === 'credit') signedBalance = -parseFloat(initialBalance);
+
       await adminService.createCustomer({
         full_name: fullName,
         national_id: nationalId,
@@ -112,6 +216,7 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
         zone,
         connection_date: connectionDate,
         customer_type: customerType,
+        initial_balance: signedBalance
       });
 
       addToast(`Customer added. Password set to ID: ${nationalId}`, 'success');
@@ -250,6 +355,55 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
             </div>
           </div>
 
+          {/* OPENING BALANCE SECTION */}
+          <div className="p-3 bg-blue-50 rounded-md border border-blue-100 space-y-3 mt-4">
+            <h3 className="text-sm font-semibold text-blue-800">Opening Balance (Optional)</h3>
+            <div className="flex gap-2">
+               <label className="flex items-center text-sm cursor-pointer">
+                 <input 
+                   type="radio" 
+                   checked={balanceType === 'none'} 
+                   onChange={() => setBalanceType('none')} 
+                   className="mr-1"
+                  /> 
+                  None (0.00)
+               </label>
+               <label className="flex items-center text-sm text-red-700 cursor-pointer">
+                 <input 
+                   type="radio" 
+                   checked={balanceType === 'debt'} 
+                   onChange={() => setBalanceType('debt')} 
+                   className="mr-1"
+                  /> 
+                  Has Debt (Bill)
+               </label>
+               <label className="flex items-center text-sm text-green-700 cursor-pointer">
+                 <input 
+                   type="radio" 
+                   checked={balanceType === 'credit'} 
+                   onChange={() => setBalanceType('credit')} 
+                   className="mr-1"
+                  /> 
+                  Overpaid (Credit)
+               </label>
+            </div>
+            {balanceType !== 'none' && (
+                <div>
+                   <label className="block text-xs font-medium text-gray-700 mb-1">
+                      {balanceType === 'debt' ? 'Amount Owed (Debt)' : 'Amount Overpaid (Credit)'}
+                   </label>
+                   <input
+                      type="number"
+                      value={initialBalance}
+                      onChange={(e) => setInitialBalance(e.target.value)}
+                      placeholder="Enter amount"
+                      className="block w-full border border-blue-300 rounded-md p-2 text-sm"
+                      required
+                   />
+                </div>
+            )}
+          </div>
+
           {error && (
             <div className="text-red-600 text-sm text-center bg-red-50 p-2 rounded border border-red-200">{error}</div>
           )}
@@ -338,12 +492,22 @@ const ViewCustomerModal: React.FC<{
               {new Date(customer.connection_date).toLocaleDateString()}
             </p>
           </div>
+          
+          {/* UPDATED: Balance Display in View Modal */}
           <div>
             <label className="block text-sm font-medium text-gray-700">Outstanding Balance</label>
             <p className={`text-sm font-semibold ${
-              customer.outstanding_balance > 0 ? 'text-red-600' : 'text-green-600'
+               customer.outstanding_balance > 0 
+                 ? 'text-red-600' 
+                 : customer.outstanding_balance < 0 
+                   ? 'text-green-600' 
+                   : 'text-gray-900'
             }`}>
-              KES {customer.outstanding_balance.toLocaleString()}
+              {customer.outstanding_balance > 0 
+                 ? `Debt: KES ${customer.outstanding_balance.toLocaleString()}` 
+                 : customer.outstanding_balance < 0 
+                    ? `Overpaid: KES ${Math.abs(customer.outstanding_balance).toLocaleString()}` 
+                    : 'KES 0'}
             </p>
           </div>
         </div>
@@ -367,7 +531,11 @@ const CustomerManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [adjustCustomer, setAdjustCustomer] = useState<Customer | null>(null);
+  
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -380,43 +548,42 @@ const CustomerManagement: React.FC = () => {
       const apiData = response.data.data || response.data;
       const customersList = apiData.customers || [];
       
-      // Fetch all bills, contributions, and fines once
-      const [billsResponse, contributionsResponse, finesResponse] = await Promise.all([
+      // UPDATED: Fetch all bills, contributions, fines AND payments
+      const [billsResponse, contributionsResponse, finesResponse, paymentsResponse] = await Promise.all([
         adminService.getBills({ limit: 1000 }),
         adminService.getContributions({ limit: 1000 }),
-        adminService.getFines()
+        adminService.getFines({ limit: 1000 }),
+        adminService.getPayments({ limit: 10000 }) // Fetch enough payments to calculate balances
       ]);
 
       const bills = billsResponse.data.data?.bills || billsResponse.data.bills || [];
       const contributions = contributionsResponse.data.data?.contributions || contributionsResponse.data.contributions || [];
       const fines = finesResponse.data.data?.fines || finesResponse.data.fines || [];
+      const payments = paymentsResponse.data.data?.payments || paymentsResponse.data.payments || [];
 
-      // Calculate outstanding balances for all customers efficiently
+      // Calculate Net Balance = (Total Charges) - (Total Payments)
       const customersWithBalances = customersList.map((customer: ApiCustomer) => {
-        // Filter for this specific customer
+        // Filter items for this specific customer
         const customerBills = bills.filter((bill: any) => bill.customer_id === customer.id);
-        const customerContributions = contributions.filter((contribution: any) => contribution.customer_id === customer.id);
+        const customerContributions = contributions.filter((c: any) => c.customer_id === customer.id);
         const customerFines = fines.filter((fine: any) => fine.customer_id === customer.id);
+        const customerPayments = payments.filter((p: any) => p.customer_id === customer.id && p.status === 'completed');
 
-        // Calculate outstanding amounts
-        const outstandingBills = customerBills
-          .filter((bill: any) => bill.status !== 'paid')
-          .reduce((sum: number, bill: any) => sum + (Number(bill.total_amount) || 0), 0);
+        // Sum up Total Charges (Debts)
+        const totalBills = customerBills.reduce((sum: number, b: any) => sum + (Number(b.total_amount) || 0), 0);
+        const totalContribs = customerContributions.reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0);
+        const totalFines = customerFines.reduce((sum: number, f: any) => sum + (Number(f.amount) || 0), 0);
+        
+        // Sum up Total Paid (Credits)
+        const totalPaid = customerPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
 
-        const outstandingContributions = customerContributions
-          .filter((contribution: any) => contribution.status !== 'paid')
-          .reduce((sum: number, contribution: any) => sum + (Number(contribution.amount) || 0), 0);
-
-        const outstandingFines = customerFines
-          .filter((fine: any) => fine.status !== 'paid')
-          .reduce((sum: number, fine: any) => sum + (Number(fine.amount) || 0), 0);
-
-        const outstandingBalance = outstandingBills + outstandingContributions + outstandingFines;
+        // Net Balance: Positive = Debt, Negative = Overpayment
+        const netBalance = (totalBills + totalContribs + totalFines) - totalPaid;
 
         return {
           ...customer,
           status: customer.is_active === 1 ? 'active' : 'inactive',
-          outstanding_balance: outstandingBalance,
+          outstanding_balance: netBalance,
           last_payment_date: null, // Default value since not provided by API
         };
       });
@@ -451,6 +618,11 @@ const CustomerManagement: React.FC = () => {
   const handleViewCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
     setShowViewModal(true);
+  };
+
+  const handleAdjustBalance = (customer: Customer) => {
+    setAdjustCustomer(customer);
+    setShowAdjustModal(true);
   };
 
   if (loading) {
@@ -599,13 +771,24 @@ const CustomerManagement: React.FC = () => {
                       {customer.status}
                     </span>
                   </td>
+
+                  {/* Balance Display Logic */}
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className={`text-sm font-medium ${
-                      customer.outstanding_balance > 0 ? 'text-red-600' : 'text-green-600'
+                      customer.outstanding_balance > 0 
+                        ? 'text-red-600' 
+                        : customer.outstanding_balance < 0 
+                          ? 'text-green-600' 
+                          : 'text-gray-500'
                     }`}>
-                      KES {customer.outstanding_balance.toLocaleString()}
+                      {customer.outstanding_balance > 0 
+                        ? `KES ${customer.outstanding_balance.toLocaleString()}` 
+                        : customer.outstanding_balance < 0 
+                          ? `Overpaid: KES ${Math.abs(customer.outstanding_balance).toLocaleString()}`
+                          : 'KES 0'}
                     </div>
                   </td>
+
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center gap-2">
                       <button
@@ -614,6 +797,13 @@ const CustomerManagement: React.FC = () => {
                         title="View Details"
                       >
                         <Users className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleAdjustBalance(customer)}
+                        className="text-purple-600 hover:text-purple-900 transition-colors"
+                        title="Adjust Balance"
+                      >
+                        <Wallet className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => toggleCustomerStatus(customer.id)}
@@ -655,6 +845,17 @@ const CustomerManagement: React.FC = () => {
             setShowViewModal(false);
             setSelectedCustomer(null);
           }}
+        />
+      )}
+
+      {showAdjustModal && (
+        <AdjustBalanceModal
+          customer={adjustCustomer}
+          onClose={() => {
+            setShowAdjustModal(false);
+            setAdjustCustomer(null);
+          }}
+          onSuccess={fetchCustomers}
         />
       )}
     </div>
