@@ -195,6 +195,12 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
     return true;
   };
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+     const value = e.target.value; // Allow only digits and max 10 characters 
+     if (/^\d*$/.test(value) && value.length <= 10) { setPhone(value); 
+     } 
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -277,8 +283,9 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
               type="text"
               value={nationalId}
               onChange={(e) => setNationalId(e.target.value)}
-              placeholder="Enter National ID"
+              placeholder="12345678"
               required
+              pattern="^[0-9]{5,8}$" 
               className="mt-1 block w-full border border-gray-300 rounded-md p-2"
             />
           </div>
@@ -296,17 +303,16 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Phone</label>
-                <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="07..."
-                required
-                className="mt-1 block w-full border border-gray-300 rounded-md p-2"
-                />
-            </div>
+            <div> <label className="block text-sm font-medium text-gray-700">Phone</label> 
+              <input 
+                type="tel" 
+                value={phone} 
+                onChange={(e) => setPhone(e.target.value)} 
+                placeholder="07xxxxxxxx" 
+                required pattern="^\d{10}$" // expects exactly 10 digits 
+                className="mt-1 block w-full border border-gray-300 rounded-md p-2" 
+                /> 
+              </div>
              <div>
                 <label className="block text-sm font-medium text-gray-700">Email (Optional)</label>
                 <input

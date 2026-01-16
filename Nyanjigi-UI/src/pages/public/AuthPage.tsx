@@ -1,14 +1,24 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useNavigate } from 'react-router-dom';
-import { Droplets, Eye, EyeOff, User, Shield } from 'lucide-react';
+import { Eye, EyeOff, ArrowRight, Lock } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 
+const IMAGES = {
+  bg: "/homepage/nyanjigi b1.jpeg",
+  logo: "/homepage/logo.jpeg"
+};
+
 const AuthPage: React.FC = () => {
+  // Default to 'customer', 'admin' is hidden
   const [activeTab, setActiveTab] = useState<'customer' | 'admin'>('customer');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  
+  // Secret counter for enabling admin mode
+  const [secretClickCount, setSecretClickCount] = useState(0);
+
   const [formData, setFormData] = useState({
     username: '',
     account_number: '',
@@ -26,6 +36,24 @@ const AuthPage: React.FC = () => {
     });
   };
 
+  // Click Logo 3 times to toggle Admin Mode
+  const handleSecretClick = () => {
+    setSecretClickCount(prev => {
+      const newCount = prev + 1;
+      if (newCount === 3) {
+        // Toggle between modes on 3rd click
+        const newTab = activeTab === 'customer' ? 'admin' : 'customer';
+        setActiveTab(newTab);
+        addToast(
+          newTab === 'admin' ? 'Admin Access Enabled 🛡️' : 'Returned to Member Login', 
+          newTab === 'admin' ? 'success' : 'info'
+        );
+        return 0; // Reset counter
+      }
+      return newCount;
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -36,260 +64,189 @@ const AuthPage: React.FC = () => {
         : { account_number: formData.account_number, password: formData.password };
 
       await login(credentials, activeTab);
-      addToast('Login successful!', 'success');
+      addToast(`Welcome back!`, 'success');
       navigate(activeTab === 'admin' ? '/admin' : '/customer');
     } catch (error: any) {
-      addToast(error.message, 'error');
+      addToast(error.message || 'Login failed', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const tabVariants = {
-    inactive: { 
-      opacity: 0.6, 
-      scale: 0.95,
-      y: 20
-    },
-    active: { 
-      opacity: 1, 
-      scale: 1,
-      y: 0,
-      transition: {
-        type: "spring",
-        stiffness: 300,
-        damping: 30
-      }
-    }
-  };
-
-  const formVariants = {
-    hidden: { 
-      opacity: 0, 
-      x: activeTab === 'customer' ? -50 : 50,
-      scale: 0.95
-    },
-    visible: { 
-      opacity: 1, 
-      x: 0,
-      scale: 1,
-      transition: {
-        type: "spring",
-        stiffness: 300,
-        damping: 30
-      }
-    },
-    exit: { 
-      opacity: 0, 
-      x: activeTab === 'customer' ? 50 : -50,
-      scale: 0.95,
-      transition: {
-        duration: 0.2
-      }
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated background elements */}
-      <div className="absolute inset-0 overflow-hidden">
-        <motion.div
-          className="absolute -top-10 -left-10 w-40 h-40 bg-blue-400/20 rounded-full blur-xl"
-          animate={{ x: [0, 100, 0], y: [0, 50, 0] }}
-          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-        />
-        <motion.div
-          className="absolute top-1/3 -right-10 w-60 h-60 bg-cyan-400/20 rounded-full blur-xl"
-          animate={{ x: [0, -80, 0], y: [0, 80, 0] }}
-          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-        />
-        <motion.div
-          className="absolute -bottom-10 left-1/3 w-50 h-50 bg-blue-500/20 rounded-full blur-xl"
-          animate={{ x: [0, 60, 0], y: [0, -40, 0] }}
-          transition={{ duration: 18, repeat: Infinity, ease: "linear" }}
-        />
+    <div className="min-h-screen bg-white flex flex-col md:flex-row">
+      
+      {/* Left Side - Image/Brand Area (Hidden on mobile) */}
+      <div className="hidden md:flex md:w-1/2 bg-blue-900 relative overflow-hidden items-center justify-center p-12">
+        <div className="absolute inset-0 z-0 opacity-40">
+           {/* [FIX] Using local background image */}
+           <img 
+            src={IMAGES.bg} 
+            alt="Background" 
+            className="w-full h-full object-cover"
+           />
+           <div className="absolute inset-0 bg-blue-900/60" />
+        </div>
+        
+        <div className="relative z-10 text-white max-w-lg">
+          <div className="mb-8">
+            <div className="bg-white/20 p-4 rounded-2xl w-fit backdrop-blur-md border border-white/10 mb-6">
+              {/* [FIX] Using local logo in left panel */}
+              <img 
+                src={IMAGES.logo} 
+                alt="Nyanjigi Logo" 
+                className="h-16 w-16 object-contain rounded-lg"
+              />
+            </div>
+            <h1 className="text-5xl font-bold mb-6 leading-tight">
+              Manage Your Water Account
+            </h1>
+            <p className="text-blue-100 text-lg leading-relaxed mb-8">
+              Access your monthly bills, payment history, and usage statistics in one secure portal.
+            </p>
+            
+            {/* Feature List */}
+            <div className="space-y-4">
+              {['Secure Payments', 'Instant Notifications', 'Usage Analytics'].map((item) => (
+                <div key={item} className="flex items-center space-x-3 text-blue-50">
+                  <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Back to home link */}
-      <Link
-        to="/"
-        className="absolute top-6 left-6 text-blue-600 hover:text-blue-700 font-medium flex items-center space-x-2 transition-colors"
-      >
-        <Droplets className="h-5 w-5" />
-        <span>Back to Home</span>
-      </Link>
+      {/* Right Side - Login Form */}
+      <div className="w-full md:w-1/2 flex items-center justify-center p-8 bg-gray-50/50">
+        <div className="w-full max-w-md space-y-8 bg-white p-10 rounded-3xl shadow-xl border border-gray-100">
+          
+          {/* Logo & Secret Trigger Area */}
+          <div className="flex flex-col items-center mb-8">
+             <motion.button
+               whileHover={{ scale: 1.05 }}
+               whileTap={{ scale: 0.95 }}
+               onClick={handleSecretClick}
+               className={`p-2 rounded-2xl mb-4 transition-all duration-300 ${
+                 activeTab === 'admin' 
+                   ? 'bg-red-50 ring-2 ring-red-100' 
+                   : 'bg-transparent'
+               }`}
+               title="Click 3 times for Admin"
+             >
+               {activeTab === 'admin' ? (
+                 <Lock className="h-16 w-16 text-red-600 p-2" />
+               ) : (
+                 /* Using local logo as the trigger button */
+                 <img 
+                   src={IMAGES.logo} 
+                   alt="Nyanjigi Logo" 
+                   className="h-20 w-20 object-contain rounded-xl"
+                 />
+               )}
+             </motion.button>
+             
+             <h2 className="text-3xl font-bold text-gray-900">
+               {activeTab === 'admin' ? 'Admin Access' : 'Member Login'}
+             </h2>
+             <p className="mt-2 text-gray-500 text-center">
+               {activeTab === 'admin' 
+                 ? 'Restricted area. Authorized personnel only.' 
+                 : 'Welcome back! Please enter your details.'}
+             </p>
+          </div>
 
-      {/* Main auth container */}
-      <motion.div
-        initial={{ opacity: 0, y: 40, scale: 0.9 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.8, type: "spring", stiffness: 100 }}
-        className="w-full max-w-md relative z-10"
-      >
-        {/* Glass container */}
-        <div className="backdrop-blur-xl bg-white/25 rounded-3xl shadow-2xl border border-white/30 p-8 relative overflow-hidden">
-          {/* Logo and title */}
-          <motion.div 
-            className="text-center mb-8"
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-          >
-            <div className="flex items-center justify-center mb-4">
-              <motion.div
-                className="bg-gradient-to-r from-blue-600 to-cyan-600 p-3 rounded-2xl"
-                whileHover={{ scale: 1.1, rotate: 5 }}
-                transition={{ type: "spring", stiffness: 400 }}
-              >
-                <Droplets className="h-8 w-8 text-white" />
-              </motion.div>
-            </div>
-            <h1 className="text-2xl font-bold text-blue-900 mb-2">Welcome Back</h1>
-            <p className="text-blue-700">Sign in to your account</p>
-          </motion.div>
-
-          {/* Tab selector */}
-          <motion.div 
-            className="flex bg-white/20 rounded-2xl p-1 mb-6 backdrop-blur-sm"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-          >
-            {(['customer', 'admin'] as const).map((tab) => (
-              <motion.button
-                key={tab}
-                className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all duration-300 flex items-center justify-center space-x-2 ${
-                  activeTab === tab
-                    ? 'bg-white text-blue-900 shadow-lg'
-                    : 'text-blue-700 hover:text-blue-900 hover:bg-white/10'
-                }`}
-                onClick={() => setActiveTab(tab)}
-                variants={tabVariants}
-                animate={activeTab === tab ? 'active' : 'inactive'}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                {tab === 'customer' ? (
-                  <User className="h-4 w-4" />
-                ) : (
-                  <Shield className="h-4 w-4" />
-                )}
-                <span className="capitalize">{tab}</span>
-              </motion.button>
-            ))}
-          </motion.div>
-
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
-                variants={formVariants}
-                initial="hidden"
-                animate="visible"
-                exit="exit"
-                className="space-y-6"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-5"
               >
-                {/* Username/Account Number field */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-blue-900">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2 ml-1">
                     {activeTab === 'admin' ? 'Username' : 'Account Number'}
                   </label>
-                  <motion.input
+                  <input
                     type="text"
                     name={activeTab === 'admin' ? 'username' : 'account_number'}
                     value={activeTab === 'admin' ? formData.username : formData.account_number}
                     onChange={handleInputChange}
-                    placeholder={activeTab === 'admin' ? 'Enter username' : 'e.g., NyWs-00001'}
-                    className="w-full px-4 py-3 bg-white/50 border border-white/30 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm text-blue-900 placeholder-blue-600/60"
+                    placeholder={activeTab === 'admin' ? 'Enter admin username' : 'e.g., NyWs-001'}
+                    className="w-full px-5 py-4 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none text-gray-900 placeholder-gray-400"
                     required
-                    whileFocus={{ scale: 1.02 }}
-                    transition={{ type: "spring", stiffness: 300 }}
                   />
                 </div>
 
-                {/* Password field */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-blue-900">
-                    Password
-                  </label>
+                <div>
+                  <div className="flex justify-between items-center mb-2 ml-1">
+                    <label className="block text-sm font-semibold text-gray-700">
+                      Password
+                    </label>
+                    {activeTab === 'customer' && (
+                      <Link to="/" className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors">
+                        Forgot Password?
+                      </Link>
+                    )}
+                  </div>
                   <div className="relative">
-                    <motion.input
+                    <input
                       type={showPassword ? 'text' : 'password'}
                       name="password"
                       value={formData.password}
                       onChange={handleInputChange}
-                      placeholder="Enter password"
-                      className="w-full px-4 py-3 bg-white/50 border border-white/30 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm text-blue-900 placeholder-blue-600/60 pr-12"
+                      placeholder="Enter your password"
+                      className="w-full px-5 py-4 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none text-gray-900 placeholder-gray-400 pr-12"
                       required
-                      whileFocus={{ scale: 1.02 }}
-                      transition={{ type: "spring", stiffness: 300 }}
                     />
-                    <motion.button
+                    <button
                       type="button"
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-blue-600 hover:text-blue-800"
+                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                       onClick={() => setShowPassword(!showPassword)}
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
                     >
-                      {showPassword ? (
-                        <EyeOff className="h-5 w-5" />
-                      ) : (
-                        <Eye className="h-5 w-5" />
-                      )}
-                    </motion.button>
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
                   </div>
                 </div>
               </motion.div>
             </AnimatePresence>
 
-            {/* Submit button */}
             <motion.button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-3 px-6 rounded-xl font-medium shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-              whileHover={{ scale: 1.02, y: -2 }}
-              whileTap={{ scale: 0.98 }}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              className={`w-full py-4 rounded-xl font-bold text-lg text-white shadow-lg shadow-blue-900/10 transition-all ${
+                activeTab === 'admin' 
+                  ? 'bg-gray-900 hover:bg-gray-800' 
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
               {loading ? (
-                <motion.div
-                  className="flex items-center justify-center"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                >
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Signing in...
-                </motion.div>
+                <div className="flex items-center justify-center gap-2">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Verifying...</span>
+                </div>
               ) : (
-                'Sign In'
+                <span className="flex items-center justify-center gap-2">
+                  Sign In <ArrowRight className="h-5 w-5" />
+                </span>
               )}
             </motion.button>
           </form>
 
-
-
-          {/* Link to sign up
-          <motion.div
-            className="mt-4 text-center"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.6 }}
-          >
-            <p className="text-blue-700">
-              Don't have an account?{' '}
-              <Link
-                to="/signup"
-                className="text-blue-600 hover:text-blue-800 font-medium underline"
-              >
-                Sign up here
-              </Link>
-            </p>
-          </motion.div> */}
+          <div className="mt-8 text-center pt-6 border-t border-gray-100">
+            <Link to="/" className="inline-flex items-center text-gray-500 hover:text-blue-600 text-sm font-medium transition-colors group">
+              <ArrowRight className="h-4 w-4 mr-2 rotate-180 group-hover:-translate-x-1 transition-transform" />
+              Back to Home Website
+            </Link>
+          </div>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 };
