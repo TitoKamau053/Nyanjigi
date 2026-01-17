@@ -25,25 +25,24 @@ const HomePage: React.FC = () => {
     {
       icon: Users,
       title: 'Community Focused',
-      description: 'Dedicated to serving the Nyanjigi community with reliable irrigation water.'
-    },
-    {
-      icon: CreditCard,
-      title: 'Easy Payments',
-      description: 'Pay your bills easily via M-Pesa STK Push or direct Paybill.'
+      description: 'Serving Nyakahura, Njii-ithatu, and Githunguri villages with equitable water access and shared governance.'
     },
     {
       icon: Shield,
-      title: 'Transparent Billing',
-      description: 'Clear, accurate monthly billing with instant SMS notifications.'
+      title: 'Fair & Transparent',
+      description: 'We uphold accountability in water distribution, billing, and infrastructure maintenance to build trust.'
     },
     {
       icon: BarChart3,
-      title: 'Sustainable Growth',
-      description: 'Promoting agricultural growth through consistent water supply.'
+      title: 'Agricultural Growth',
+      description: 'Supporting farmers with consistent irrigation that boosts yields, diversifies crops, and strengthens food security.'
+    },
+    {
+      icon: CreditCard,
+      title: 'Accessible Payments',
+      description: 'Flexible payment options via Equity Bank Agents, Mobile Money, Equitel, and bank transfers.'
     }
   ];
-
   return (
     <div className="min-h-screen bg-white font-sans text-gray-800">
       {/* Navigation */}
@@ -56,7 +55,7 @@ const HomePage: React.FC = () => {
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.6 }}
             >
-              {/* [FIX 2] Replaced Icon with Logo Image */}
+              {/* Replaced Icon with Logo Image */}
               <div className="h-10 w-10 overflow-hidden rounded-lg">
                 <img 
                   src={IMAGES.logo} 
@@ -107,9 +106,10 @@ const HomePage: React.FC = () => {
             <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
               Empowering Agriculture Through Water
             </h1>
-            <p className="text-xl text-blue-100 mb-8 leading-relaxed">
-              We provide reliable irrigation water to the Nyanjigi community, ensuring prosperous farming and sustainable growth for every member.
-            </p>
+              <p className="text-xl text-blue-100 mb-8 leading-relaxed">
+                Established in the early 2000s, the Nyanjigi Irrigation Water Project supplies reliable water for households and farms across Nyakahura, Njii-ithatu, and Githunguri villages in Kangema Subcounty. We empower families and farmers with sustainable irrigation solutions that ensure food security and prosperity.
+              </p>
+
             <div className="flex flex-col sm:flex-row gap-4">
               <Link
                 to="/auth"
@@ -140,17 +140,24 @@ const HomePage: React.FC = () => {
             >
               <h2 className="text-3xl font-bold text-gray-900 mb-6">Who We Are</h2>
               <div className="w-20 h-1.5 bg-blue-600 mb-8 rounded-full"></div>
-              <p className="text-lg text-gray-600 mb-6 leading-relaxed">
-                Nyanjigi Irrigation Water Project is a community-driven initiative committed to transforming agriculture in our region. We manage water distribution, infrastructure maintenance, and sustainable usage policies to ensure every farmer gets their fair share.
-              </p>
-              <ul className="space-y-4">
-                {['Reliable Water Supply', 'Community Managed', 'Transparent Operations'].map((item) => (
-                  <li key={item} className="flex items-center text-gray-700">
-                    <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
+                <p className="text-lg text-gray-600 mb-6 leading-relaxed">
+                  The Nyanjigi Irrigation Water Project is a community-driven initiative founded to secure reliable water access for households and agricultural projects. Rooted in the villages of Nyakahura, Njii-ithatu, and Githunguri, we manage water distribution, maintain infrastructure, and promote sustainable usage policies. Our mission is to empower local farmers, strengthen food security, and build resilience for generations to come.
+                </p>
+                <ul className="space-y-4">
+                  {[
+                    'Reliable Water Supply for households and farms',
+                    'Community Managed with inclusive decision-making',
+                    'Transparent Operations and fair billing',
+                    'Sustainable Agriculture through irrigation projects',
+                    'Infrastructure Development for long-term service',
+                    'Community Empowerment and collaboration'
+                  ].map((item) => (
+                    <li key={item} className="flex items-center text-gray-700">
+                      <CheckCircle className="h-5 w-5 text-green-500 mr-3" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
             </motion.div>
             <motion.div
               initial={{ opacity: 0, x: 30 }}
@@ -229,15 +236,28 @@ const HomePage: React.FC = () => {
                     <p className="text-blue-200">nyanjigi@gmail.com</p>
                   </div>
                 </div>
-                <div className="flex items-start gap-4">
-                  <div className="bg-blue-800 p-3 rounded-lg">
-                    <MapPin className="h-6 w-6 text-blue-400" />
+                  <div className="flex items-start gap-4">
+                    <div className="bg-blue-800 p-3 rounded-lg">
+                      <MapPin className="h-6 w-6 text-blue-400" />
+                    </div>
+                    <div className="w-full">
+                      <h3 className="font-semibold text-lg">Location</h3>
+                      <p className="text-blue-200 mb-4">G3, Iyego-Kangema, Kenya</p>
+                      
+                      {/* Map Embed */}
+                      <div className="rounded-2xl overflow-hidden shadow-lg h-80">
+                        <iframe
+                          src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3989.5287799096336!2d37.0844348!3d-0.6902689!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x182897c8760066e5%3A0x623ae946a3cc6d9d!2sNYANJIGI%20IRRIGATION%20WATER%20USERS%20ASSOCIATION!5e0!3m2!1sen!2ske!4v1768651326205!5m2!1sen!2ske"
+                          width="100%"
+                          height="100%"
+                          style={{ border: 0 }}
+                          allowFullScreen={true}
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                        ></iframe>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">Location</h3>
-                    <p className="text-blue-200">G3, Iyego-Kangema, Kenya</p>
-                  </div>
-                </div>
               </div>
             </div>
             
