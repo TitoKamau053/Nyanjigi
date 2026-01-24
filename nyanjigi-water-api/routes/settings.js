@@ -148,12 +148,14 @@ router.get('/logs/security',
  * @desc    Get settings by category
  * @access  Private (Admin only)
  */
+const allowedCats = ['general', 'billing', 'contributions'];
+
 router.get('/:category',
   verifyAdmin,
   [
     require('express-validator').param('category')
-      .isIn(['general', 'billing', 'payments', 'contributions', 'notifications'])
-      .withMessage('Valid category is required')
+      .isIn(allowedCats)
+      .withMessage('Only general, billing, and contributions settings are accessible')
   ],
   handleValidationErrors,
   asyncHandler(SystemSettingsController.getSettingsByCategory)

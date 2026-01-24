@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
+import emailjs from '@emailjs/browser';
 import { 
   Users, 
   CreditCard, 
@@ -13,6 +14,8 @@ import {
   Phone,
   Mail
 } from 'lucide-react';
+import { useToast } from '../../context/ToastContext';
+
 
 const IMAGES = {
   hero: "/homepage/nyanjigi b1.jpeg", 
@@ -21,6 +24,35 @@ const IMAGES = {
 };
 
 const HomePage: React.FC = () => {
+
+const form = useRef<HTMLFormElement>(null);
+  const [isSending, setIsSending] = useState(false);
+  const { addToast } = useToast();
+
+  const handleContactSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.current) return;
+
+    setIsSending(true);
+
+    try {
+      await emailjs.sendForm(
+        import.meta.env.VITE_EMAILJS_SERVICE_ID,
+        import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+        form.current,
+        import.meta.env.VITE_EMAILJS_PUBLIC_KEY
+      );
+      
+      addToast('Message sent successfully! We will get back to you soon.', 'success');
+      form.current.reset(); // Clear form after success
+    } catch (error) {
+      console.error('EmailJS Error:', error);
+      addToast('Failed to send message. Please try again later.', 'error');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const features = [
     {
       icon: Users,
@@ -261,29 +293,39 @@ const HomePage: React.FC = () => {
               </div>
             </div>
             
-            <div className="bg-white/10 backdrop-blur-sm p-8 rounded-3xl border border-white/10">
-              <h3 className="text-2xl font-bold mb-6">Send us a message</h3>
-              <form className="space-y-4">
-                <input 
-                  type="text" 
-                  placeholder="Your Name" 
-                  className="w-full px-4 py-3 rounded-xl bg-blue-900/50 border border-blue-700 text-white placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
-                <input 
-                  type="email" 
-                  placeholder="Your Email" 
-                  className="w-full px-4 py-3 rounded-xl bg-blue-900/50 border border-blue-700 text-white placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
-                <textarea 
-                  rows={4}
-                  placeholder="How can we help?" 
-                  className="w-full px-4 py-3 rounded-xl bg-blue-900/50 border border-blue-700 text-white placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                ></textarea>
-                <button className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl transition-colors shadow-lg">
-                  Send Message
-                </button>
-              </form>
-            </div>
+              <div className="bg-white/10 backdrop-blur-md p-8 rounded-2xl border border-white/20 shadow-2xl">
+                <h3 className="text-2xl font-bold text-white mb-6">Send us a Message</h3>
+                <form ref={form} onSubmit={handleContactSubmit} className="space-y-4">
+                  <input 
+                    type="text" 
+                    name="user_name" // Ensure these match your EmailJS template variables
+                    required
+                    placeholder="Your Name" 
+                    className="w-full px-4 py-3 rounded-xl bg-blue-900/50 border border-blue-700 text-white placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <input 
+                    type="email" 
+                    name="user_email"
+                    required
+                    placeholder="Your Email" 
+                    className="w-full px-4 py-3 rounded-xl bg-blue-900/50 border border-blue-700 text-white placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <textarea 
+                    name="message"
+                    required
+                    rows={4}
+                    placeholder="How can we help?" 
+                    className="w-full px-4 py-3 rounded-xl bg-blue-900/50 border border-blue-700 text-white placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  ></textarea>
+                  <button 
+                    type="submit" 
+                    disabled={isSending}
+                    className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-800 text-white font-bold py-3 rounded-xl transition-colors shadow-lg"
+                  >
+                    {isSending ? 'Sending...' : 'Send Message'}
+                  </button>
+                </form>
+              </div>
           </div>
         </div>
       </section>

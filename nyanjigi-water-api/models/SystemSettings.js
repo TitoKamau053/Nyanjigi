@@ -168,7 +168,6 @@ async getPaymentSettings() {
     throw error;
   }
 }
-
   // Get contribution settings
   async getContributionSettings() {
     try {
@@ -222,47 +221,16 @@ async getPaymentSettings() {
   // Initialize default settings (for fresh installation)
   async initializeDefaultSettings() {
     try {
-      const defaultSettings = [
-        // General settings
-        { key: 'company_name', value: 'Nyanjigi Waters Management System', category: 'general', description: 'Company name for billing and notifications' },
-        { key: 'company_phone', value: '+254700000000', category: 'general', description: 'Company contact phone number' },
-        { key: 'company_email', value: 'info@nyanjigi.co.ke', category: 'general', description: 'Company contact email' },
-        
-        // Billing settings
-        { key: 'default_flat_rate', value: '300.00', category: 'billing', description: 'Default monthly flat rate billing amount' },
-        { key: 'default_billing_day', value: '1', category: 'billing', description: 'Day of month to generate bills (1-28)' },
-        { key: 'payment_due_days', value: '30', category: 'billing', description: 'Days after bill generation for payment due date' },
-        { key: 'late_fine_grace_days', value: '7', category: 'billing', description: 'Grace period days before applying late payment fines' },
-        
-        // Contribution settings
-        { key: 'monthly_contribution_amount', value: '100.00', category: 'contributions', description: 'Suggested monthly contribution amount' },
-        { key: 'contribution_due_days', value: '30', category: 'contributions', description: 'Days after month start for contribution due date' },
-        { key: 'total_contribution_target', value: '18500.00', category: 'contributions', description: 'Total contribution target per customer after installation' },
-        
-        { 
-          key: 'equity_paybill_account', 
-          value: '247247', 
-          category: 'payments', 
-          description: 'Equity Bank Paybill account number' 
-        },
-        {
-          key: 'equity_callback_url',
-          value: 'https://yourdomain.com/api/v1/equity/callback',
-          category: 'payments',
-          description: 'Callback URL for Equity payment notifications'
-        },
-        {
-          key: 'equity_webhook_secret',
-          value: '',
-          category: 'payments',
-          description: 'Secret key for validating Equity webhooks'
-        },
-        
-        // Notification settings
-        { key: 'sms_sender_id', value: 'NYANJIGI', category: 'notifications', description: 'SMS sender ID for outgoing messages' },
-        { key: 'sms_enabled', value: 'true', category: 'notifications', description: 'Enable/disable SMS notifications' },
-        { key: 'email_enabled', value: 'false', category: 'notifications', description: 'Enable/disable email notifications' }
-      ];
+        const defaultSettings = [
+            { key: 'company_name', value: 'Nyanjigi Waters', category: 'general', description: 'Company name' },
+            { key: 'company_phone', value: '+254700000000', category: 'general', description: 'Contact phone' },
+            { key: 'company_email', value: 'info@nyanjigi.co.ke', category: 'general', description: 'Contact email' },
+            { key: 'default_flat_rate', value: '300.00', category: 'billing', description: 'Monthly flat rate' },
+            { key: 'default_billing_day', value: '1', category: 'billing', description: 'Billing day (1-28)' },
+            { key: 'payment_due_days', value: '30', category: 'billing', description: 'Days until due' },
+            { key: 'monthly_contribution_amount', value: '100.00', category: 'contributions', description: 'Monthly contribution' },
+            { key: 'total_contribution_target', value: '18500.00', category: 'contributions', description: 'Target amount' }
+          ];
 
       const results = [];
       
@@ -367,30 +335,20 @@ async getPaymentSettings() {
     return value && value.toString().trim().length > 0;
   }
 
-  // Get settings with validation status
   async getSettingsWithValidation() {
-    try {
-      const allSettings = await this.getAllSettings();
-      
-      const validatedSettings = {};
-      
-      for (const [category, settings] of Object.entries(allSettings.categorized)) {
-        validatedSettings[category] = {};
-        
-        for (const [key, setting] of Object.entries(settings)) {
-          validatedSettings[category][key] = {
-            ...setting,
-            is_valid: this.validateSetting(key, setting.value),
-            required: ['equity_paybill_account', 'equity_webhook_secret'].includes(key)
-          };
-        }
+    const allSettings = await this.getAllSettings();
+    const validatedSettings = {};
+    for (const [category, settings] of Object.entries(allSettings.categorized)) {
+      validatedSettings[category] = {};
+      for (const [key, setting] of Object.entries(settings)) {
+        validatedSettings[category][key] = {
+          ...setting,
+          is_valid: this.validateSetting(key, setting.value),
+          required: false // REMOVED: ['equity_paybill_account', 'equity_webhook_secret'].includes(key)
+        };
       }
-      
-      return validatedSettings;
-    } catch (error) {
-      console.error('Error getting settings with validation:', error);
-      throw error;
     }
+    return validatedSettings;
   }
 
   static async testEquityConnection(req, res) {

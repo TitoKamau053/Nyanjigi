@@ -154,12 +154,14 @@ const saveSettings = async () => {
   };
 
   const tabs = [
+    { id: 'general', name: 'General', icon: Database },
     { id: 'billing', name: 'Billing', icon: DollarSign },
     { id: 'contributions', name: 'Contributions', icon: Calendar },
-    { id: 'general', name: 'General', icon: Database },
-    { id: 'notifications', name: 'Notifications', icon: Bell },
-    { id: 'payments', name: 'Payments', icon: Shield },
+    
   ];
+
+  // Optional: Set default tab to general or billing
+  // const [activeTab, setActiveTab] = useState('general');
 
   if (loading) return <div className="flex justify-center p-10"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
 

@@ -78,44 +78,44 @@ class SystemSettingsController {
 
   // --- EXISTING METHODS (Preserved) ---
 
-  // Get payment settings (Admin only)
-  static async getPaymentSettings(req, res) {
-    try {
-      const settings = await SystemSettings.getPaymentSettings();
-      const secureSettings = {
-        ...settings,
-        equity_webhook_secret: settings.equity_webhook_secret ? '***configured***' : ''
-      };
-      return ApiResponse.success(res, secureSettings, 'Payment settings retrieved successfully');
-    } catch (error) {
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
+  // // Get payment settings (Admin only)
+  // static async getPaymentSettings(req, res) {
+  //   try {
+  //     const settings = await SystemSettings.getPaymentSettings();
+  //     const secureSettings = {
+  //       ...settings,
+  //       equity_webhook_secret: settings.equity_webhook_secret ? '***configured***' : ''
+  //     };
+  //     return ApiResponse.success(res, secureSettings, 'Payment settings retrieved successfully');
+  //   } catch (error) {
+  //     return ApiResponse.error(res, error.message, 500);
+  //   }
+  // }
 
-  // Update payment settings (Admin only)
-  static async updatePaymentSettings(req, res) {
-    try {
-      const { jenga_api_url, jenga_consumer_key, jenga_consumer_secret, stk_push_shortcode, stk_callback_url } = req.body;
-      const updates = {};
-      if (jenga_api_url !== undefined) updates.jenga_api_url = jenga_api_url;
-      if (jenga_consumer_key !== undefined) updates.jenga_consumer_key = jenga_consumer_key;
-      if (jenga_consumer_secret !== undefined) updates.jenga_consumer_secret = jenga_consumer_secret;
-      if (stk_push_shortcode !== undefined) updates.stk_push_shortcode = stk_push_shortcode;
-      if (stk_callback_url !== undefined) updates.stk_callback_url = stk_callback_url;
+  // // Update payment settings (Admin only)
+  // static async updatePaymentSettings(req, res) {
+  //   try {
+  //     const { jenga_api_url, jenga_consumer_key, jenga_consumer_secret, stk_push_shortcode, stk_callback_url } = req.body;
+  //     const updates = {};
+  //     if (jenga_api_url !== undefined) updates.jenga_api_url = jenga_api_url;
+  //     if (jenga_consumer_key !== undefined) updates.jenga_consumer_key = jenga_consumer_key;
+  //     if (jenga_consumer_secret !== undefined) updates.jenga_consumer_secret = jenga_consumer_secret;
+  //     if (stk_push_shortcode !== undefined) updates.stk_push_shortcode = stk_push_shortcode;
+  //     if (stk_callback_url !== undefined) updates.stk_callback_url = stk_callback_url;
 
-      if (Object.keys(updates).length === 0) return ApiResponse.error(res, 'No payment settings provided to update', 400);
+  //     if (Object.keys(updates).length === 0) return ApiResponse.error(res, 'No payment settings provided to update', 400);
 
-      const results = await SystemSettings.updateSettings(updates, req.admin.id);
-      const safeResults = results.map(result => ({
-        ...result,
-        value: result.key.includes('secret') || result.key.includes('key') ? '***updated***' : result.value
-      }));
+  //     const results = await SystemSettings.updateSettings(updates, req.admin.id);
+  //     const safeResults = results.map(result => ({
+  //       ...result,
+  //       value: result.key.includes('secret') || result.key.includes('key') ? '***updated***' : result.value
+  //     }));
 
-      return ApiResponse.success(res, { updated_settings: safeResults }, 'Payment settings updated successfully');
-    } catch (error) {
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
+  //     return ApiResponse.success(res, { updated_settings: safeResults }, 'Payment settings updated successfully');
+  //   } catch (error) {
+  //     return ApiResponse.error(res, error.message, 500);
+  //   }
+  // }
 
   // Get contribution settings (Admin only)
   static async getContributionSettings(req, res) {
@@ -144,33 +144,33 @@ class SystemSettingsController {
     }
   }
 
-  // Get notification settings (Admin only)
-  static async getNotificationSettings(req, res) {
-    try {
-      const settings = await SystemSettings.getNotificationSettings();
-      return ApiResponse.success(res, settings, 'Notification settings retrieved successfully');
-    } catch (error) {
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
+  // // Get notification settings (Admin only)
+  // static async getNotificationSettings(req, res) {
+  //   try {
+  //     const settings = await SystemSettings.getNotificationSettings();
+  //     return ApiResponse.success(res, settings, 'Notification settings retrieved successfully');
+  //   } catch (error) {
+  //     return ApiResponse.error(res, error.message, 500);
+  //   }
+  // }
 
-  // Update notification settings (Admin only)
-  static async updateNotificationSettings(req, res) {
-    try {
-      const { sms_sender_id, sms_enabled, email_enabled } = req.body;
-      const updates = {};
-      if (sms_sender_id !== undefined) updates.sms_sender_id = sms_sender_id;
-      if (sms_enabled !== undefined) updates.sms_enabled = sms_enabled.toString();
-      if (email_enabled !== undefined) updates.email_enabled = email_enabled.toString();
+  // // Update notification settings (Admin only)
+  // static async updateNotificationSettings(req, res) {
+  //   try {
+  //     const { sms_sender_id, sms_enabled, email_enabled } = req.body;
+  //     const updates = {};
+  //     if (sms_sender_id !== undefined) updates.sms_sender_id = sms_sender_id;
+  //     if (sms_enabled !== undefined) updates.sms_enabled = sms_enabled.toString();
+  //     if (email_enabled !== undefined) updates.email_enabled = email_enabled.toString();
 
-      if (Object.keys(updates).length === 0) return ApiResponse.error(res, 'No notification settings provided to update', 400);
+  //     if (Object.keys(updates).length === 0) return ApiResponse.error(res, 'No notification settings provided to update', 400);
 
-      const results = await SystemSettings.updateSettings(updates, req.admin.id);
-      return ApiResponse.success(res, { updated_settings: results }, 'Notification settings updated successfully');
-    } catch (error) {
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
+  //     const results = await SystemSettings.updateSettings(updates, req.admin.id);
+  //     return ApiResponse.success(res, { updated_settings: results }, 'Notification settings updated successfully');
+  //   } catch (error) {
+  //     return ApiResponse.error(res, error.message, 500);
+  //   }
+  // }
 
   // Get company settings (Admin only)
   static async getCompanySettings(req, res) {
@@ -245,35 +245,35 @@ class SystemSettingsController {
     }
   }
 
-  // Test Equity Bank connection (Admin only)
-  static async testEquityConnection(req, res) {
-    try {
-      const paymentSettings = await SystemSettings.getPaymentSettings();
-      if (!paymentSettings.equity_paybill_account || !paymentSettings.equity_webhook_secret) {
-        return ApiResponse.error(res, 'Equity Bank payment settings not configured', 400);
-      }
+  // // Test Equity Bank connection (Admin only)
+  // static async testEquityConnection(req, res) {
+  //   try {
+  //     const paymentSettings = await SystemSettings.getPaymentSettings();
+  //     if (!paymentSettings.equity_paybill_account || !paymentSettings.equity_webhook_secret) {
+  //       return ApiResponse.error(res, 'Equity Bank payment settings not configured', 400);
+  //     }
 
-      const axios = require('axios');
-      if (paymentSettings.equity_callback_url) {
-        try {
-          const urlTest = await axios.get(paymentSettings.equity_callback_url, { timeout: 5000 });
-          if (urlTest.status !== 200) throw new Error('Callback URL not accessible');
-        } catch (urlError) {
-          console.warn('Callback URL test failed:', urlError.message);
-        }
-      }
+  //     const axios = require('axios');
+  //     if (paymentSettings.equity_callback_url) {
+  //       try {
+  //         const urlTest = await axios.get(paymentSettings.equity_callback_url, { timeout: 5000 });
+  //         if (urlTest.status !== 200) throw new Error('Callback URL not accessible');
+  //       } catch (urlError) {
+  //         console.warn('Callback URL test failed:', urlError.message);
+  //       }
+  //     }
 
-      return ApiResponse.success(res, {
-        status: 'success',
-        message: 'Equity Bank payment settings validated',
-        paybill_account: paymentSettings.equity_paybill_account,
-        callback_url: paymentSettings.equity_callback_url || 'Not configured',
-        webhook_secret_configured: !!paymentSettings.equity_webhook_secret
-      }, 'Equity Bank connection test successful');
-    } catch (error) {
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
+  //     return ApiResponse.success(res, {
+  //       status: 'success',
+  //       message: 'Equity Bank payment settings validated',
+  //       paybill_account: paymentSettings.equity_paybill_account,
+  //       callback_url: paymentSettings.equity_callback_url || 'Not configured',
+  //       webhook_secret_configured: !!paymentSettings.equity_webhook_secret
+  //     }, 'Equity Bank connection test successful');
+  //   } catch (error) {
+  //     return ApiResponse.error(res, error.message, 500);
+  //   }
+  // }
 
   // Reset settings to defaults
   static async resetSettings(req, res) {
@@ -399,17 +399,24 @@ class SystemSettingsController {
   static async updateSettings(req, res) {
     try {
       const { settings } = req.body;
-      if (!settings || typeof settings !== 'object') return ApiResponse.error(res, 'Settings object is required', 400);
-
-      const validationErrors = [];
+      const allowedCategories = ['general', 'billing', 'contributions'];
+      
+      // Filter settings to only include allowed keys based on their current category in DB
+      const allSettings = await SystemSettings.getAllSettings();
+      const filteredSettings = {};
+      
       for (const [key, value] of Object.entries(settings)) {
-        if (!SystemSettings.validateSetting(key, value)) validationErrors.push({ key, value, error: 'Invalid value' });
+        const settingInfo = allSettings.all.find(s => s.setting_key === key);
+        if (settingInfo && allowedCategories.includes(settingInfo.category)) {
+          if (!SystemSettings.validateSetting(key, value)) {
+            return ApiResponse.error(res, `Invalid value for ${key}`, 400);
+          }
+          filteredSettings[key] = value;
+        }
       }
 
-      if (validationErrors.length > 0) return ApiResponse.validationError(res, validationErrors);
-
-      const results = await SystemSettings.updateSettings(settings, req.admin.id);
-      return ApiResponse.success(res, { updated_settings: results, count: results.length }, `Successfully updated ${results.length} settings`);
+      const results = await SystemSettings.updateSettings(filteredSettings, req.admin.id);
+      return ApiResponse.success(res, { updated_settings: results }, `Updated ${results.length} settings`);
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
     }
