@@ -75,7 +75,7 @@ if (process.env.NODE_ENV === 'production') {
 
 // Body parsing
 app.use(express.json({
-  limit: '10mb',
+  limit: '1mb',
   verify: (req, res, buf) => {
     // Store raw body for webhook verification if needed
     if (req.path === '/api/v1/payments/jenga-callback') {
@@ -83,8 +83,7 @@ app.use(express.json({
     }
   }
 }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 // Serve static files from public directory
 app.use(express.static('public'));
 
@@ -93,48 +92,21 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// ===== REQUEST CONTEXT MIDDLEWARE =====
-
-// Add request ID and timestamp
-app.use((req, res, next) => {
-  req.id = Math.random().toString(36).substr(2, 9);
-  req.timestamp = new Date().toISOString();
-  
-  // Add request info to response headers for debugging
-  res.setHeader('X-Request-ID', req.id);
-  res.setHeader('X-API-Version', '1.0.0');
-  
-  next();
-});
-
-// Request logging for debugging
-app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[${req.timestamp}] ${req.method} ${req.path} - IP: ${req.ip}`);
-  }
-  next();
-});
-
-// ===== ROUTES =====
-
 // API Routes
 app.use('/api/v1', routes);
 
-// Root endpoint
 app.get('/', (req, res) => {
   res.json({
-    name: 'Nyanjigi Waters Management System',
-    version: '1.0.0',
     status: 'running',
-    message: 'Welcome to Nyanjigi Waters Management System API',
-    api_base: '/api/v1',
-    documentation: '/api/v1',
     timestamp: new Date().toISOString()
   });
 });
 
 // API Documentation placeholder
 app.get('/api/v1/docs', (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
   res.json({
     message: 'API Documentation',
     version: '1.0.0',
@@ -194,27 +166,27 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Graceful shutdown handling
 const server = app.listen(PORT,'0.0.0.0', async () => {
-  console.log('🚀 Nyanjigi Waters Management System API');
+  console.log('Nyanjigi Waters Management System API');
   console.log('='.repeat(50));
-  console.log(`📡 Server running on port ${PORT}`);
-  console.log(`🌍 Environment: ${NODE_ENV}`);
-  console.log(`🔗 API Base URL: http://localhost:${PORT}/api/v1`);
-  console.log(`📚 Documentation: http://localhost:${PORT}/api/v1/docs`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${NODE_ENV}`);
+  console.log(`API Base URL: http://localhost:${PORT}/api/v1`);
+  console.log(`Documentation: http://localhost:${PORT}/api/v1/docs`);
   
   // Test database connection
   try {
     await testConnection();
-    console.log('✅ Database connection successful');
+    console.log('Database connection successful');
 
     try {
       await SchedulerService.initialize();
       SchedulerService.startAll();
-      console.log('⏱️ Scheduler jobs initialized');
+      console.log('Scheduler jobs initialized');
     } catch (schedulerError) {
-      console.error('⚠️ Scheduler initialization failed:', schedulerError.message);
+      console.error('Scheduler initialization failed:', schedulerError.message);
     }
   } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
+    console.error('Database connection failed:', error.message);
     process.exit(1);
   }
   
@@ -222,7 +194,7 @@ const server = app.listen(PORT,'0.0.0.0', async () => {
   console.log('🎯 Ready to accept requests!');
   
   if (NODE_ENV === 'development') {
-    console.log('\n📋 Development URLs:');
+    console.log('\nDevelopment URLs:');
     console.log(`   Health Check: http://localhost:${PORT}/api/v1/health`);
     console.log(`   Admin Login:  POST http://localhost:${PORT}/api/v1/auth/admin/login`);
     console.log(`   Customer Login: POST http://localhost:${PORT}/api/v1/auth/customer/login`);
