@@ -28,7 +28,9 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false,
-  hidePoweredBy: true
+  hidePoweredBy: true,
+  noSniff: true, 
+  xssFilter: true       
 }));
 
 // CORS configuration
@@ -60,6 +62,13 @@ const limiter = rateLimit({
   }
 });
 app.use('/api/', limiter);
+
+// Add this additional middleware to remove Server header
+app.use((req, res, next) => {
+  res.removeHeader('Server');
+  res.removeHeader('X-Powered-By');
+  next();
+});
 
 // ===== GENERAL MIDDLEWARE =====
 
