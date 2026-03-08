@@ -10,6 +10,13 @@ class Customer extends BaseModel {
     super('customers');
   }
 
+  buildDuplicateEntryError(field, message) {
+    const error = new Error(message);
+    error.code = 'ER_DUP_ENTRY';
+    error.message = `Duplicate entry for ${field}`;
+    return error;
+  }
+
   // Create customer with auto-generated account number
   async createCustomer(customerData) {
     try {
@@ -22,6 +29,31 @@ class Customer extends BaseModel {
 
       // Use provided account number instead of generating one
       const accountNumber = customerData.account_number;
+
+      // Pre-check uniqueness to avoid noisy DB duplicate errors
+      const existingByAccount = await this.findByAccountNumber(accountNumber);
+      if (existingByAccount) {
+        throw this.buildDuplicateEntryError('account_number', 'Account number already exists');
+      }
+
+      const existingByNationalId = await this.findOne({ national_id: customerData.national_id });
+      if (existingByNationalId) {
+        throw this.buildDuplicateEntryError('national_id', 'National ID already exists');
+      }
+
+      if (customerData.phone) {
+        const existingByPhone = await this.findByPhone(customerData.phone);
+        if (existingByPhone) {
+          throw this.buildDuplicateEntryError('phone', 'Phone number already exists');
+        }
+      }
+
+      if (customerData.email) {
+        const existingByEmail = await this.findOne({ email: customerData.email });
+        if (existingByEmail) {
+          throw this.buildDuplicateEntryError('email', 'Email already exists');
+        }
+      }
 
       // Use National ID as the initial password
       const password = customerData.national_id;

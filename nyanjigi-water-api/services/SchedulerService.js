@@ -100,7 +100,11 @@ class SchedulerService {
           });
           
           if (contributions.contributions && contributions.contributions.length > 0) {
-            await NotificationService.sendContributionReminders(contributions.contributions);
+            if (typeof NotificationService.sendContributionReminders === 'function') {
+              await NotificationService.sendContributionReminders(contributions.contributions);
+            } else {
+              console.warn('sendContributionReminders not available on NotificationService; reminders skipped');
+            }
             console.log('📱 Contribution reminders sent');
           }
         }
@@ -136,7 +140,11 @@ class SchedulerService {
         const overdueBills = await Bill.getOverdueBills(500);
         
         if (overdueBills.length > 0) {
-          await NotificationService.sendOverdueNotices(overdueBills);
+          if (typeof NotificationService.sendOverdueNotices === 'function') {
+            await NotificationService.sendOverdueNotices(overdueBills);
+          } else {
+            console.warn('sendOverdueNotices not available on NotificationService; overdue notices skipped');
+          }
           console.log(`📱 Overdue notices sent to ${overdueBills.length} customers`);
         }
         
@@ -144,7 +152,11 @@ class SchedulerService {
         const overdueContributions = await Contribution.getOverdueContributions(500);
         
         if (overdueContributions.length > 0) {
-          await NotificationService.sendContributionReminders(overdueContributions);
+          if (typeof NotificationService.sendContributionReminders === 'function') {
+            await NotificationService.sendContributionReminders(overdueContributions);
+          } else {
+            console.warn('sendContributionReminders not available on NotificationService; contribution reminders skipped');
+          }
           console.log(`📱 Contribution reminders sent to ${overdueContributions.length} customers`);
         }
         
@@ -244,9 +256,10 @@ async scheduleFineApplication() {
       const fineTypes = await executeQuery(fineTypeQuery);
       
       if (fineTypes.length === 0) {
-        console.error('No active late payment fine type found');
-        await this.logScheduledActivity('fine_application', 'failed', {
-          error: 'Late payment fine type not configured'
+        console.warn('No active late payment fine type found');
+        await this.logScheduledActivity('fine_application', 'success', {
+          fines_applied: 0,
+          message: 'Skipped: late payment fine type not configured'
         });
         return;
       }
@@ -512,11 +525,11 @@ async validateFineApplication(billId) {
         maintenanceTasks.push(`Auto-failed ${paymentCleanup.affectedRows} old pending payments`);
         
         // Clean up processed scheduled notifications (older than 30 days)
-        // const scheduledCleanupQuery = `
-        //   DELETE FROM scheduled_notifications 
-        //   WHERE status IN ('sent', 'failed') 
-        //   AND processed_at < DATE_SUB(NOW(), INTERVAL 30 DAY)
-        // `;
+        const scheduledCleanupQuery = `
+          DELETE FROM scheduled_notifications 
+          WHERE status IN ('sent', 'failed') 
+          AND processed_at < DATE_SUB(NOW(), INTERVAL 30 DAY)
+        `;
         try {
           const scheduledCleanup = await executeQuery(scheduledCleanupQuery);
           maintenanceTasks.push(`Cleaned up ${scheduledCleanup.affectedRows} old scheduled notifications`);

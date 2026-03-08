@@ -245,10 +245,81 @@ class NotificationService {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  // Send contribution reminders in bulk (used by scheduler)
+  async sendContributionReminders(contributions = []) {
+    if (!Array.isArray(contributions) || contributions.length === 0) {
+      return { success: true, summary: { total: 0, successful: 0, failed: 0 }, results: [] };
+    }
+
+    const recipients = contributions.map((item) => ({
+      id: item.customer_id,
+      phone: item.customer_phone || item.phone,
+      full_name: item.customer_name || item.full_name || 'Customer',
+      account_number: item.account_number,
+      amount_required: item.amount_required || item.amount,
+      due_date: item.due_date
+    }));
+
+    return this.sendBulkNotifications(
+      recipients,
+      'contribution_reminder',
+      (recipient) => ({
+        customer_name: recipient.full_name,
+        account_number: recipient.account_number || '',
+        amount: this.toCurrency(recipient.amount_required || 0),
+        due_date: recipient.due_date ? new Date(recipient.due_date).toLocaleDateString() : ''
+      })
+    );
+  }
+
+  // Send overdue bill notices in bulk (used by scheduler)
+  async sendOverdueNotices(overdueBills = []) {
+    if (!Array.isArray(overdueBills) || overdueBills.length === 0) {
+      return { success: true, summary: { total: 0, successful: 0, failed: 0 }, results: [] };
+    }
+
+    const recipients = overdueBills.map((bill) => ({
+      id: bill.customer_id,
+      phone: bill.customer_phone || bill.phone,
+      full_name: bill.customer_name || bill.full_name || 'Customer',
+      account_number: bill.account_number,
+      bill_number: bill.bill_number,
+      total_amount: bill.total_amount,
+      due_date: bill.due_date
+    }));
+
+    return this.sendBulkNotifications(
+      recipients,
+      'overdue_notice',
+      (recipient) => ({
+        customer_name: recipient.full_name,
+        account_number: recipient.account_number || '',
+        bill_number: recipient.bill_number || '',
+        amount: this.toCurrency(recipient.total_amount || 0),
+        due_date: recipient.due_date ? new Date(recipient.due_date).toLocaleDateString() : ''
+      })
+    );
+  }
+
+  safeParseJSON(value, fallback = {}) {
+    if (!value) return fallback;
+    if (typeof value === 'object') return value;
+    try {
+      return JSON.parse(value);
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
   async processScheduledNotifications() {
     try {
       const tables = await executeQuery("SHOW TABLES LIKE 'scheduled_notifications'");
       if (tables.length === 0) return { processed: 0, successful: 0, failed: 0 };
+
+      const columns = await executeQuery("SHOW COLUMNS FROM scheduled_notifications");
+      const columnSet = new Set(columns.map(c => c.Field));
+      const hasProcessedAt = columnSet.has('processed_at');
+      const hasResult = columnSet.has('result');
 
       const pendingNotifications = await executeQuery(`
         SELECT * FROM scheduled_notifications
@@ -269,22 +340,40 @@ class NotificationService {
             email: notification.recipient_email
           };
 
-          const variables = notification.variables ? JSON.parse(notification.variables) : {};
+          const variables = this.safeParseJSON(notification.variables, {});
           const result = await this.sendNotification(recipient, notification.notification_type, variables);
 
-          await executeQuery(`UPDATE scheduled_notifications SET status = ?, processed_at = NOW(), result = ? WHERE id = ?`, [
-            result.success ? 'sent' : 'failed',
-            JSON.stringify(result),
-            notification.id
-          ]);
+          const updateClauses = ['status = ?'];
+          const updateParams = [result.success ? 'sent' : 'failed'];
+          if (hasProcessedAt) updateClauses.push('processed_at = NOW()');
+          if (hasResult) {
+            updateClauses.push('result = ?');
+            updateParams.push(JSON.stringify(result));
+          }
+          updateParams.push(notification.id);
+
+          await executeQuery(
+            `UPDATE scheduled_notifications SET ${updateClauses.join(', ')} WHERE id = ?`,
+            updateParams
+          );
 
           if (result.success) successful++; else failed++;
         } catch (error) {
           console.error(`Failed to process scheduled notification ${notification.id}:`, error);
-          await executeQuery(`UPDATE scheduled_notifications SET status = 'failed', processed_at = NOW(), result = ? WHERE id = ?`, [
-            JSON.stringify({ success: false, error: error.message }),
-            notification.id
-          ]);
+          const failurePayload = JSON.stringify({ success: false, error: error.message });
+          const updateClauses = ["status = 'failed'"];
+          const updateParams = [];
+          if (hasProcessedAt) updateClauses.push('processed_at = NOW()');
+          if (hasResult) {
+            updateClauses.push('result = ?');
+            updateParams.push(failurePayload);
+          }
+          updateParams.push(notification.id);
+
+          await executeQuery(
+            `UPDATE scheduled_notifications SET ${updateClauses.join(', ')} WHERE id = ?`,
+            updateParams
+          );
           failed++;
         }
       }

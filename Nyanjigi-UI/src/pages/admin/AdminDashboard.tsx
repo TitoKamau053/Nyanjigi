@@ -6,7 +6,6 @@ import {
   DollarSign, 
   FileText, 
   TrendingUp,
-  AlertTriangle,
   CheckCircle
 } from 'lucide-react';
 import { Line } from 'react-chartjs-2';

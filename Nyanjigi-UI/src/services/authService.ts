@@ -41,8 +41,8 @@ export const authService = {
   },
 
   logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    localStorage.removeItem('water_token');
+    localStorage.removeItem('water_user');
     return Promise.resolve();
   },
 

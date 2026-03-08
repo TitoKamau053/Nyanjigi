@@ -3,3 +3,5 @@
 .txt
 /tests
 /node_modules
+.pnpm
+*.yaml

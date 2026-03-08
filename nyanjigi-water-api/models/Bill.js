@@ -99,7 +99,7 @@ class Bill extends BaseModel {
         const outstandingFines = parseFloat(customer.outstanding_fines || 0);
         const contributionsPaid = parseFloat(customer.total_contributions_paid || 0);
         const contributionOutstanding = Math.max(0, totalContributionTarget - contributionsPaid);
-        const totalAmount = previousOutstanding + flatRate;
+        const totalAmount = previousOutstanding + flatRate + outstandingFines;
 
         notifications.push({
           customer_id: customer.id,
@@ -123,7 +123,7 @@ class Bill extends BaseModel {
           billing_period_end: periodEnd,
           previous_balance: previousOutstanding,
           current_charges: flatRate,
-          fines_applied: 0,
+          fines_applied: outstandingFines,
           total_amount: totalAmount,
           due_date: dueDate,
           status: 'pending',
@@ -139,6 +139,9 @@ class Bill extends BaseModel {
       // Get unique list of customers who were just billed
       const billedCustomerIds = billsData.map(b => b.customer_id);
       
+      // Require Payment here to avoid circular dependency issues at the top of the file
+      const Payment = require('./Payment');
+
       // Process advances for each customer (can be done in parallel or sequence)
       // Using sequence to be safe with DB connections
       let autoPaidCount = 0;
@@ -480,15 +483,20 @@ async getOverdueBills(limit = 100) {
         throw new Error('Bill not found');
       }
 
-      const remainingAmount = parseFloat(bill.total_amount) - paymentAmount;
-      let newStatus = 'paid';
-
-      if (remainingAmount > 0) {
-        newStatus = 'partially_paid';
-      }
+      // Account for amounts already allocated to this bill from previous payments
+      const existingResult = await executeQuery(
+        `SELECT COALESCE(SUM(amount), 0) as already_paid
+         FROM payment_allocations
+         WHERE bill_id = ? AND allocation_type = 'bill_payment'`,
+        [billId]
+      );
+      const alreadyPaid = parseFloat(existingResult[0].already_paid);
+      const totalPaidAfterThis = alreadyPaid + paymentAmount;
+      const remainingAmount = parseFloat(bill.total_amount) - totalPaidAfterThis;
+      let newStatus = totalPaidAfterThis >= parseFloat(bill.total_amount) ? 'paid' : 'partially_paid';
 
       // Update bill status
-      await this.updateBillStatus(billId, newStatus, new Date());
+      await this.updateBillStatus(billId, newStatus, newStatus === 'paid' ? new Date() : null);
 
       // Create payment allocation record
       const allocationQuery = `

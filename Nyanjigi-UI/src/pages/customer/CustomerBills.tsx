@@ -122,13 +122,6 @@ const CustomerBills: React.FC = () => {
     }
   };
 
-  // Updated calculations with proper number parsing and safety checks
-  const totalBillsAmount = bills.reduce((sum, bill) => {
-    const billAmount = Number(bill.total_amount) || 0;
-    const finesAmount = Number(bill.fines_applied) || 0;
-    return sum + billAmount + finesAmount;
-  }, 0);
-
   const paidAmount = bills.filter(b => getDisplayStatus(b) === 'paid').reduce((sum, bill) => {
     const billAmount = Number(bill.total_amount) || 0;
     const finesAmount = Number(bill.fines_applied) || 0;

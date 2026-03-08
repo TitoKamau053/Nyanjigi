@@ -67,7 +67,30 @@ constructor() {
       console.log('Username:', this.username);
       console.log('Sender ID:', this.senderId);
       
-      const formattedPhone = this.formatPhoneNumber(phoneNumber);
+      if (!phoneNumber || typeof phoneNumber !== 'string') {
+        return {
+          success: false,
+          error: 'Missing or invalid phone number',
+          message_id: null,
+          phone: phoneNumber
+        };
+      }
+
+      let formattedPhone;
+      try {
+        formattedPhone = this.formatPhoneNumber(phoneNumber);
+      } catch (validationError) {
+        console.warn('SMS skipped due to phone validation:', {
+          phone: phoneNumber,
+          reason: validationError.message
+        });
+        return {
+          success: false,
+          error: validationError.message,
+          message_id: null,
+          phone: phoneNumber
+        };
+      }
       console.log('Formatted phone:', formattedPhone);
       
       const sendOptions = {
@@ -99,8 +122,17 @@ constructor() {
           };
         } else {
           const errorMsg = recipient?.status || recipient?.statusCode || 'SMS sending failed';
-          console.error('SMS sending failed with status:', errorMsg);
-          throw new Error(errorMsg);
+          if (errorMsg === 'UserInBlacklist') {
+            console.warn('SMS rejected by provider (blacklist):', formattedPhone);
+          } else {
+            console.error('SMS sending failed with status:', errorMsg);
+          }
+          return {
+            success: false,
+            error: errorMsg,
+            message_id: null,
+            phone: formattedPhone
+          };
         }
       } else {
         console.error('Invalid API response structure:', response);

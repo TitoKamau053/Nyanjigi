@@ -1,6 +1,8 @@
 .env
 *.md
 .txt
+.pnpm
+*.yaml
 /tests
 /node_modules
 /dist

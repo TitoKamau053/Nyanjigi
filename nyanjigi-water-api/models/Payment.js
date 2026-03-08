@@ -410,20 +410,17 @@ async processCustomerAdvances(customerId) {
       }
 
       // B. Pay Fines
+      // only process a fine when the full amount can be covered. Partial coverage is skipped to avoid untrackable allocations and double-deduction on the next advance run.
       for (const fine of fines) {
         if (totalAdvance <= 0) break;
-        
-        // Check if fine table tracks partials? Schema says 'status' and 'amount'. 
-        // Assuming allocations track partials or it's one-off.
-        // We'll assume we check current allocations for this fine (if schema links fine_id in allocations, 
-        // BUT schema provided only has bill_id in allocations table). 
-        // **Workaround**: If schema doesn't link fines to allocations, we usually just update the fine status directly 
-        // and create an allocation record with notes.
-        
-        const fineAllocated = await useAdvance(parseFloat(fine.amount), null, 'fine', `Fine #${fine.id} payment`);
-        if (fineAllocated >= parseFloat(fine.amount)) {
-            await executeQuery("UPDATE applied_fines SET status = 'paid' WHERE id = ?", [fine.id]);
-            allocatedCount++;
+
+        const fineAmount = parseFloat(fine.amount);
+        if (totalAdvance < fineAmount) continue; // not enough advance to fully cover — skip
+
+        const fineAllocated = await useAdvance(fineAmount, null, 'fine', `Fine #${fine.id} payment`);
+        if (fineAllocated >= fineAmount) {
+          await executeQuery("UPDATE applied_fines SET status = 'paid' WHERE id = ?", [fine.id]);
+          allocatedCount++;
         }
       }
 

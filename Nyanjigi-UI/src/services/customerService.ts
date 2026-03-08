@@ -23,11 +23,13 @@ export const customerService = {
     page?: number; 
     limit?: number; 
     status?: 'paid' | 'pending' | 'overdue' | 'partially_paid';
+    year?: number;
   }) => {
     const query = new URLSearchParams();
     if (params?.page) query.append('page', params.page.toString());
     if (params?.limit) query.append('limit', params.limit.toString());
     if (params?.status) query.append('status', params.status);
+    if (params?.year) query.append('year', params.year.toString());
     return api.get(`/customers/me/bills?${query.toString()}`);
   },
 
