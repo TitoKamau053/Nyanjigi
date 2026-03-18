@@ -130,10 +130,12 @@ async validateCustomer(req, res) {
       const balanceResult = await executeQuery(balanceQuery, [customer.id, customer.id, customer.id]);
       const outstandingBalance = parseFloat(balanceResult[0]?.total_outstanding || 0);
 
+      const sanitizedMemberNumber = customer.account_number.replace(/[^a-zA-Z0-9]/g, '');
+
       // STRICT Response Structure
       const response = {
         name: customer.full_name,
-        member_number: customer.account_number,
+        member_number: sanitizedMemberNumber,
         outstanding_balance: parseFloat(outstandingBalance.toFixed(2)),
         phone: customer.phone || "",
         status: customer.is_active ? "Active" : "Inactive"
