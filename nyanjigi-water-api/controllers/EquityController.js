@@ -271,14 +271,22 @@ async validateCustomer(req, res) {
         return;
       }
 
-      // Find customer
+
+      const rawMemberNumber = member_number;
+      const sanitizedMemberNumber = rawMemberNumber.replace(/[^a-zA-Z0-9]/g, '');
+
+      // Find customer (match raw OR sanitized)
       const customerQuery = `
         SELECT id, account_number, full_name, phone, email
-        FROM customers 
-        WHERE account_number = ? 
+        FROM customers
+        WHERE account_number = ?
+          OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
         LIMIT 1
       `;
-      const customers = await executeQuery(customerQuery, [member_number]);
+      const customers = await executeQuery(customerQuery, [
+        rawMemberNumber,
+        sanitizedMemberNumber
+      ]);
 
       if (!customers || customers.length === 0) {
         console.error('[Equity Process] Customer not found:', member_number);
@@ -413,20 +421,27 @@ async processEquityPayment(callbackData) {
         return;
       }
 
-      // Find customer
+      const rawMemberNumber = member_number;
+      const sanitizedMemberNumber = rawMemberNumber.replace(/[^a-zA-Z0-9]/g, '');
+
+      // Find customer (match raw OR sanitized)
       const customerQuery = `
-        SELECT id, account_number, full_name, phone 
-        FROM customers 
-        WHERE account_number = ? 
+        SELECT id, account_number, full_name, phone, email
+        FROM customers
+        WHERE account_number = ?
+          OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
         LIMIT 1
       `;
-      const customers = await executeQuery(customerQuery, [member_number]);
+      const customers = await executeQuery(customerQuery, [
+        rawMemberNumber,
+        sanitizedMemberNumber
+      ]);
 
       if (!customers || customers.length === 0) {
         console.error('[Equity Process] Customer not found:', member_number);
         await this.logPaymentAttempt({
           transaction_id,
-          member_number,
+          member_number: sanitizedMemberNumber,
           amount,
           payment_method,
           status: 'error',
