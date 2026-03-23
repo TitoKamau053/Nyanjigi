@@ -2,8 +2,7 @@
  * ===========================================
  * EQUITY BANK EXTERNAL PAYMENT SYSTEM
  * ===========================================
- * 
- * Complete implementation for Equity Bank external payment integration
+ * * Complete implementation for Equity Bank external payment integration
  * All payments are processed through Equity channels:
  * - Branch deposits
  * - Agent deposits
@@ -29,7 +28,7 @@ class EquityController {
    * STEP 0: Authentication Endpoint
    * Equity calls this to get an Access Token
    */
-async login(req, res) {
+  async login(req, res) {
     try {
       const { username, password } = req.body;
 
@@ -39,13 +38,6 @@ async login(req, res) {
         return res.status(401).json({ success: false, message: 'Invalid credentials' });
       }
 
-      // 2. Generate Tokens using EQUITY_JWT_SECRET
-      // const refreshToken = jwt.sign(
-      //   { role: 'equity_biller', type: 'refresh' },
-      //   process.env.EQUITY_JWT_SECRET,
-      //   { expiresIn: '1h' }
-      // );
-
       const accessToken = jwt.sign(
         { role: 'equity_biller', type: 'access' },
         process.env.EQUITY_JWT_SECRET,
@@ -54,7 +46,6 @@ async login(req, res) {
 
       return res.status(200).json({
         access: accessToken,
-        // refresh: refreshToken
       });
 
     } catch (error) {
@@ -63,12 +54,12 @@ async login(req, res) {
     }
   }
 
-/**
+  /**
    * STEP 1: Customer Validation
    * Only member_number is mandatory.
    * Response restricted to specific fields.
    */
-async validateCustomer(req, res) {
+  async validateCustomer(req, res) {
     try {
       let { member_number, phone } = req.body;
 
@@ -90,15 +81,45 @@ async validateCustomer(req, res) {
         });
       }
 
-      // Find customer
+      //Custmer Lookup Logic:
+      // We allow flexible input for member_number to accommodate various formats from Equity.
+      // The lookup will try multiple strategies:
+      const identifier = member_number.toString().trim();
+      const sanitizedId = identifier.replace(/[^a-zA-Z0-9]/g, '');
+      
+      // Extract the last 9 digits for phone numbers to safely ignore prefixes
+      let phoneMatch = identifier;
+      if (/\d{9,}/.test(sanitizedId)) {
+          phoneMatch = `%${sanitizedId.slice(-9)}`;
+      }
+
+      // Check Exact Account, Sanitized Account, Phone, ID, and auto-complete missing Zones
       const customerQuery = `
-        SELECT id, account_number, full_name, phone, is_active
+        SELECT id, account_number, full_name, phone, email, is_active
         FROM customers 
         WHERE account_number = ? 
+           OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
+           OR phone LIKE ?
+           OR id_number = ? 
+           OR account_number = CONCAT('Nyakahura-', ?)
+           OR account_number = CONCAT('G3-', ?)
+           OR account_number = CONCAT('Githunguri-', ?)
+           OR account_number = CONCAT('Nyakahura', ?)
+           OR account_number = CONCAT('G3', ?)
+           OR account_number = CONCAT('Githunguri', ?)
         LIMIT 1
       `;
       
-      const customers = await executeQuery(customerQuery, [member_number]);
+      const queryParams = [
+        identifier, 
+        sanitizedId, 
+        phoneMatch, 
+        identifier, 
+        identifier, identifier, identifier,
+        identifier, identifier, identifier 
+      ];
+
+      const customers = await executeQuery(customerQuery, queryParams);
 
       if (!customers || customers.length === 0) {
         return res.status(404).json({
@@ -151,14 +172,13 @@ async validateCustomer(req, res) {
       });
     }
   }
-/**
+
+  /**
    * STEP 2: Payment Callback Handler
    * Returns responseCode and responseMessage.
    */
   async handlePaymentCallback(req, res) {
     try {
-      // [FIX] Destructure the fields Equity actually sends (based on their email)
-      // They send: billerCode, billNumber, account, amount, tranId, tranDate, channel
       const rawBody = req.body;
 
       console.log('[Equity Callback] Raw Body:', JSON.stringify(rawBody));
@@ -170,9 +190,6 @@ async validateCustomer(req, res) {
       const payment_method = rawBody.channel || rawBody.payment_method;
       const timestamp = rawBody.tranDate || rawBody.timestamp;
       
-      // Note: Equity DOES NOT send customer_name, so we cannot require it here.
-      // We will fetch it from the DB using the member_number (billNumber).
-
       // 1. Mandatory Field Validation
       if (!transaction_id || !member_number || !amount) {
          console.error('[Equity Callback] Missing fields:', { transaction_id, member_number, amount });
@@ -199,7 +216,7 @@ async validateCustomer(req, res) {
          console.warn('[Equity Callback] Duplicate detected:', transaction_id);
          return res.status(200).json({
             responseCode: "409",
-            responseMessage: "Duplicate transaction" // Updated to match their doc example
+            responseMessage: "Duplicate transaction"
          });
       }
 
@@ -213,7 +230,6 @@ async validateCustomer(req, res) {
       this.processEquityPayment({
         transaction_id,
         member_number,
-        // customer_name, // Removed: We don't have this yet, we'll find it in processEquityPayment
         amount,
         reference_type: 'general',
         payment_method: payment_method || 'Equity',
@@ -237,157 +253,13 @@ async validateCustomer(req, res) {
 
   /**
    * STEP 3: Process Payment (Async)
-   * (Kept logic mostly same, ensuring stability)
+   * Allocates payment to bills, fines, and contributions
    */
   async processEquityPayment(callbackData) {
     try {
       const {
         transaction_id,
         member_number,
-        amount,
-        reference_type,
-        payment_method,
-        status,
-        timestamp
-      } = callbackData;
-
-      console.log('[Equity Process] Starting:', transaction_id);
-
-      let finalStatus = 'completed';
-      if (status && (status.toLowerCase() === 'failed' || status.toLowerCase() === 'reversed')) {
-         finalStatus = 'failed';
-      }
-
-      if (finalStatus === 'failed') {
-        await this.logPaymentAttempt({
-          transaction_id,
-          member_number,
-          amount,
-          payment_method,
-          status: 'failed',
-          reason: `Payment status: ${status}`,
-          timestamp
-        });
-        return;
-      }
-
-
-      const rawMemberNumber = member_number;
-      const sanitizedMemberNumber = rawMemberNumber.replace(/[^a-zA-Z0-9]/g, '');
-
-      // Find customer (match raw OR sanitized)
-      const customerQuery = `
-        SELECT id, account_number, full_name, phone, email
-        FROM customers
-        WHERE account_number = ?
-          OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
-        LIMIT 1
-      `;
-      const customers = await executeQuery(customerQuery, [
-        rawMemberNumber,
-        sanitizedMemberNumber
-      ]);
-
-      if (!customers || customers.length === 0) {
-        console.error('[Equity Process] Customer not found:', member_number);
-        await this.logPaymentAttempt({
-          transaction_id,
-          member_number,
-          amount,
-          payment_method,
-          status: 'error',
-          reason: 'Customer not found',
-          timestamp
-        });
-        return;
-      }
-
-      const customer = customers[0];
-
-      // Idempotency Check
-      const duplicateCheck = `SELECT id FROM payments WHERE transaction_id = ? LIMIT 1`;
-      const existing = await executeQuery(duplicateCheck, [`EQ-${transaction_id}`]);
-
-      if (existing && existing.length > 0) {
-        console.warn('[Equity Process] Duplicate payment:', transaction_id);
-        return;
-      }
-
-      // Create Payment
-      const paymentInsertQuery = `
-        INSERT INTO payments (
-          customer_id, transaction_id, equity_reference, equity_member_number,
-          payment_method, amount, payment_date, status, equity_callback_response, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-
-      const paymentDate = moment(timestamp).isValid() ? moment(timestamp).toDate() : new Date();
-
-      const insertResult = await executeQuery(paymentInsertQuery, [
-        customer.id,
-        `EQ-${transaction_id}`,
-        transaction_id,
-        member_number,
-        `equity_${payment_method}`,
-        parseFloat(amount),
-        paymentDate,
-        finalStatus,
-        JSON.stringify(callbackData),
-        callbackData.narrative || `Equity payment via ${payment_method}`
-      ]);
-
-      const paymentId = insertResult.insertId;
-
-      // Allocate
-      await this.allocatePayment(paymentId, customer.id, parseFloat(amount), reference_type);
-
-      // Send SMS
-      const NotificationService = require('../services/NotificationService');
-      await NotificationService.sendNotification(
-        { id: customer.id, phone: customer.phone, email: customer.email },
-        'payment_received',
-        {
-          customer_name: customer.full_name,
-          amount: amount,
-          transaction_id: transaction_id,
-          payment_date: new Date().toLocaleString(),
-          account_number: customer.account_number
-        }
-      );
-
-      await this.logPaymentAttempt({
-        transaction_id,
-        member_number,
-        amount,
-        payment_method,
-        status: 'processed',
-        payment_id: paymentId,
-        timestamp
-      });
-
-    } catch (error) {
-      console.error('[Equity Process] Error:', error);
-      await this.logPaymentAttempt({
-        transaction_id: callbackData.transaction_id,
-        member_number: callbackData.member_number,
-        amount: callbackData.amount,
-        payment_method: callbackData.payment_method,
-        status: 'error',
-        reason: error.message,
-        timestamp: callbackData.timestamp
-      });
-    }
-  }
-  /**
-   * STEP 3: Process Payment (Async)
-   * Allocates payment to bills, fines, and contributions
-   */
-async processEquityPayment(callbackData) {
-    try {
-      const {
-        transaction_id,
-        member_number,
-        customer_name,
         amount,
         reference_type,
         payment_method,
@@ -421,27 +293,49 @@ async processEquityPayment(callbackData) {
         return;
       }
 
-      const rawMemberNumber = member_number;
-      const sanitizedMemberNumber = rawMemberNumber.replace(/[^a-zA-Z0-9]/g, '');
+      // ==========================================
+      // FLEXIBLE CUSTOMER LOOKUP
+      // ==========================================
+      const identifier = member_number.toString().trim();
+      const sanitizedId = identifier.replace(/[^a-zA-Z0-9]/g, '');
+      
+      let phoneMatch = identifier;
+      if (/\d{9,}/.test(sanitizedId)) {
+          phoneMatch = `%${sanitizedId.slice(-9)}`;
+      }
 
-      // Find customer (match raw OR sanitized)
       const customerQuery = `
-        SELECT id, account_number, full_name, phone, email
+        SELECT id, account_number, full_name, phone, email, is_active
         FROM customers
         WHERE account_number = ?
-          OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
+           OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
+           OR phone LIKE ?
+           OR id_number = ?
+           OR account_number = CONCAT('Nyakahura-', ?)
+           OR account_number = CONCAT('G3-', ?)
+           OR account_number = CONCAT('Githunguri-', ?)
+           OR account_number = CONCAT('Nyakahura', ?)
+           OR account_number = CONCAT('G3', ?)
+           OR account_number = CONCAT('Githunguri', ?)
         LIMIT 1
       `;
-      const customers = await executeQuery(customerQuery, [
-        rawMemberNumber,
-        sanitizedMemberNumber
-      ]);
+      
+      const queryParams = [
+        identifier, 
+        sanitizedId, 
+        phoneMatch, 
+        identifier,
+        identifier, identifier, identifier,
+        identifier, identifier, identifier
+      ];
+
+      const customers = await executeQuery(customerQuery, queryParams);
 
       if (!customers || customers.length === 0) {
         console.error('[Equity Process] Customer not found:', member_number);
         await this.logPaymentAttempt({
           transaction_id,
-          member_number: sanitizedMemberNumber,
+          member_number: sanitizedId, // Fallback logging
           amount,
           payment_method,
           status: 'error',
@@ -533,11 +427,6 @@ async processEquityPayment(callbackData) {
         account_number: customer.account_number
       };
 
-      const recipient = {
-        id: customer.id,
-        phone: customer.phone,
-        email: customer.email || null
-      };
       // Send payment confirmation SMS
       const NotificationService = require('../services/NotificationService');
       await NotificationService.sendNotification(
@@ -909,7 +798,6 @@ async processEquityPayment(callbackData) {
       const { customer_id } = req.params;
       const { page = 1, limit = 20 } = req.query;
       
-      // FIX: Parse pagination values to integers
       const limitInt = parseInt(limit) || 20;
       const offsetInt = (parseInt(page) - 1) * limitInt;
 
