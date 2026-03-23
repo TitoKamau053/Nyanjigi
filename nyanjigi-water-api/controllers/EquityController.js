@@ -94,7 +94,7 @@ class EquityController {
         WHERE account_number = ? 
            OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
            OR phone LIKE ?
-           OR id_number = ? 
+           OR national_id = ? 
            OR account_number = CONCAT('Nyakahura-', ?)
            OR account_number = CONCAT('G3-', ?)
            OR account_number = CONCAT('Githunguri-', ?)
