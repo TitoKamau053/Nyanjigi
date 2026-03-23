@@ -54,37 +54,31 @@ class EquityController {
     }
   }
 
-  /**
+ /**
    * STEP 1: Customer Validation
-   * Only member_number is mandatory.
-   * Response restricted to specific fields.
+   * Accepts customer_details, member_number, or billNumber.
    */
   async validateCustomer(req, res) {
     try {
-      let { member_number, phone } = req.body;
-
-      // Safe trim for phone to handle " " as empty
-      if (typeof phone === 'string') {
-        phone = phone.trim();
-      }
+      // 1. Extract the identifier from whichever key the user provided
+      const rawIdentifier = req.body.customer_details || req.body.member_number || req.body.billNumber;
 
       console.log('[Equity Validation]', {
-        member_number,
-        phone: phone || 'not provided',
+        provided_identifier: rawIdentifier,
         timestamp: new Date().toISOString()
       });
 
-      if (!member_number) {
+      if (!rawIdentifier) {
         return res.status(400).json({
           success: false,
-          message: 'Member number is required'
+          message: 'Customer details are required'
         });
       }
 
-      //Custmer Lookup Logic:
-      // We allow flexible input for member_number to accommodate various formats from Equity.
-      // The lookup will try multiple strategies:
-      const identifier = member_number.toString().trim();
+      // ==========================================
+      // FLEXIBLE CUSTOMER LOOKUP
+      // ==========================================
+      const identifier = rawIdentifier.toString().trim();
       const sanitizedId = identifier.replace(/[^a-zA-Z0-9]/g, '');
       
       // Extract the last 9 digits for phone numbers to safely ignore prefixes
@@ -100,7 +94,7 @@ class EquityController {
         WHERE account_number = ? 
            OR REPLACE(REPLACE(account_number,'-',''),' ','') = ?
            OR phone LIKE ?
-           OR national_id = ? 
+           OR id_number = ? 
            OR account_number = CONCAT('Nyakahura-', ?)
            OR account_number = CONCAT('G3-', ?)
            OR account_number = CONCAT('Githunguri-', ?)

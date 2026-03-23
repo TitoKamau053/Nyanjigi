@@ -84,7 +84,14 @@ router.post('/validate-customer',
   checkWhitelist,     // 1. IP Check
   verifyEquityToken,  // 2. Token Check
   [
-    body('member_number').trim().notEmpty().withMessage('Member number is required'),
+    // FLEXIBLE IDENTIFIER CHECK
+    body().custom((value, { req }) => {
+        const identifier = req.body.customer_details || req.body.member_number || req.body.billNumber;
+        if (!identifier || identifier.toString().trim() === '') {
+            throw new Error('Please provide customer_details (can be account number, ID, or phone)');
+        }
+        return true;
+    }),
     body('phone').optional().matches(/^(\+254|254|0)[17]\d{8}$/).withMessage('Valid phone number required')
   ],
   handleValidationErrors,
@@ -100,9 +107,10 @@ router.post('/callback',
     body('tranId').optional().trim(),
     body('transaction_id').optional().trim(),
     
-    // Equity sends 'billNumber', we map this to member_number
+    // Flexible fields for mapping
     body('billNumber').optional().trim(),
     body('member_number').optional().trim(),
+    body('customer_details').optional().trim(),
     
     body('amount').isFloat({ min: 0.01 }).withMessage('Valid amount is required'),
     
