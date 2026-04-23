@@ -1,5 +1,5 @@
 const express = require('express');
-const { AdminController } = require('../controllers');
+const { AdminController, MeterReadingController} = require('../controllers');
 const { verifyAdmin } = require('../middleware/auth');
 const { handleValidationErrors, asyncHandler } = require('../middleware/errorHandler');
 const SMSService = require('../services/SMSService');
@@ -160,6 +160,23 @@ router.get('/customers/export',
   ],
   handleValidationErrors,
   asyncHandler(AdminController.exportCustomers)
+);
+
+
+//====METER READING ROUTES=====
+
+//Fetch customers and their previous readings for the selected month
+router.get(
+  '/meter-readings/customers', 
+  verifyAdmin, 
+  MeterReadingController.getCustomersForReading
+);
+
+//Submit the new meter readings entered by the reps
+router.post(
+  '/meter-readings', 
+  verifyAdmin, 
+  MeterReadingController.submitReadings
 );
 
 // ===== SMS & NOTIFICATION MANAGEMENT =====

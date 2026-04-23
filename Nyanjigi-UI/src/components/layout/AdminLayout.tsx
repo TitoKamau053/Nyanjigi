@@ -44,6 +44,7 @@ const AdminLayout: React.FC = () => {
     { icon: LayoutDashboard, label: 'Dashboard', path: '/admin/dashboard' },
     { icon: Users, label: 'Customers', path: '/admin/customers' },
     { icon: FileText, label: 'Billing', path: '/admin/billing' },
+    { icon: Droplets, label: 'Meter Readings', path: '/admin/meter-readings' },
     { icon: CreditCard, label: 'Payments', path: '/admin/payments' },
     { icon: TrendingUp, label: 'Contributions', path: '/admin/contributions' },
     { icon: Bell, label: 'Notifications', path: '/admin/notifications' },

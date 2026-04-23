@@ -9,6 +9,7 @@ const PaymentController = require('./PaymentController');
 const ContributionController = require('./ContributionController');
 const SystemSettingsController = require('./SystemSettingsController');
 const EquityController = require('./EquityController');
+const MeterReadingController = require('./MeterReadingController');
 
 module.exports = {
   AdminController,
@@ -17,5 +18,6 @@ module.exports = {
   PaymentController,
   ContributionController,
   SystemSettingsController,
-  EquityController
+  EquityController,
+  MeterReadingController
 };

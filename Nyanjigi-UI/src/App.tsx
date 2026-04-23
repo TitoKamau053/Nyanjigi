@@ -19,6 +19,7 @@ import CustomerProfile from './pages/customer/CustomerProfile';
 import CustomerContributions from './pages/customer/CustomerContributions';
 import CustomerFines from './pages/customer/CustomerFines';
 import AdminFines from './pages/admin/AdminFines';
+import MeterReadings from './pages/admin/MeterReadings';
 import NotificationManagement from './pages/admin/NotificationManagement';
 import ProtectedRoute from './components/common/ProtectedRoute';
 
@@ -41,6 +42,7 @@ function App() {
                 <Route index element={<Navigate to="/admin/dashboard" replace />} />
                 <Route path="dashboard" element={<AdminDashboard />} />
                 <Route path="customers" element={<CustomerManagement />} />
+                <Route path="meter-readings" element={<MeterReadings />} />
                 <Route path="billing" element={<BillingManagement />} />
                 <Route path="payments" element={<PaymentManagement />} />
                 <Route path="contributions" element={<ContributionManagement />} />

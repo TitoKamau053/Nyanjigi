@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Calendar, DollarSign, AlertCircle, Download, Plus } from 'lucide-react';
+import { FileText, Calendar, DollarSign, AlertCircle, Download, Plus, Droplets } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -10,10 +10,16 @@ interface Bill {
   account_number: string;
   customer_type: 'normal' | 'institution';
   total_amount: number;
+  current_charges: number;
   billing_month: string;
   due_date: string;
-  status: 'pending' | 'paid' | 'overdue' | 'cancelled';
+  status: 'pending' | 'paid' | 'overdue' | 'partially_paid';
   created_at: string;
+  bill_type: 'flat_rate' | 'metered';
+  meter_reading_previous?: number;
+  meter_reading_current?: number;
+  units_consumed?: number;
+  rate_per_unit?: number;
 }
 
 interface BillStats {
@@ -60,7 +66,7 @@ const EditBillModal: React.FC<EditBillModalProps> = ({ bill, onClose, onSave }) 
               <option value="pending">Pending</option>
               <option value="paid">Paid</option>
               <option value="overdue">Overdue</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="partially_paid">Partially Paid</option>
             </select>
           </div>
         </div>
@@ -96,7 +102,6 @@ const BillingManagement: React.FC = () => {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const { addToast } = useToast();
 
-  // New state for modals
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
@@ -128,10 +133,6 @@ const BillingManagement: React.FC = () => {
       const billsData = apiData.bills || [];
       const paginationData = apiData.pagination || null;
 
-      // Debug: Log the bills data to see what's being returned
-      console.log('Bills data:', billsData);
-      console.log('First bill sample:', billsData[0]);
-
       setBills(billsData);
       setPagination(paginationData);
     } catch (error) {
@@ -155,24 +156,14 @@ const BillingManagement: React.FC = () => {
     }
   };
 
-  const handleExport = async () => {
+const handleExport = async () => {
     try {
-      // Export bills as CSV for now
-      const response = await adminService.exportBills('csv');
+      const response = await adminService.exportBills({ format: 'csv', month: selectedMonth });
       const blob = new Blob([response.data], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `bills_${selectedMonth}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode?.removeChild(link);
-      addToast('Bills exported successfully', 'success');
     } catch (error) {
       addToast('Failed to export bills', 'error');
     }
   };
-
   const handleViewBill = (billId: number) => {
     const bill = bills.find(b => b.id === billId) || null;
     setSelectedBill(bill);
@@ -188,11 +179,11 @@ const BillingManagement: React.FC = () => {
   const handleDeleteBill = async (billId: number) => {
     if (window.confirm('Are you sure you want to delete this bill? This action cannot be undone.')) {
       try {
-        await adminService.updateBillStatus(billId, { status: 'cancelled' });
-        addToast('Bill deleted successfully', 'success');
+        await adminService.updateBillStatus(billId, { status: 'partially_paid' });
+        addToast('Bill updated successfully', 'success');
         await fetchBills();
       } catch (error) {
-        addToast('Failed to delete bill', 'error');
+        addToast('Failed to update bill', 'error');
       }
     }
   };
@@ -230,7 +221,6 @@ const BillingManagement: React.FC = () => {
     }
   };
 
-  // Determine display status considering due date and status
   const getDisplayStatus = (bill: Bill) => {
     if (bill.status !== 'paid' && new Date(bill.due_date) < new Date()) {
       return 'overdue';
@@ -238,17 +228,8 @@ const BillingManagement: React.FC = () => {
     return bill.status;
   };
 
-  const getCustomerTypeRate = (customerType: string) => {
-    return customerType === 'institution' ? 1000 : 300; // Institution rate is higher
-  };
-
-  // Total Amount is total value for paid bills
   const totalAmount = Math.round(bills.filter(b => b.status === 'paid').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
-  // Amount column should show total_amount per bill (already done in table)
-  const paidAmount = totalAmount;
-  // Pending amount should be sum of bills with display status 'pending'
   const pendingAmount = Math.round(bills.filter(b => getDisplayStatus(b) === 'pending').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
-  // Overdue amount should be sum of overdue bills from bills array, not from billStats
   const overdueAmount = Math.round(bills.filter(b => getDisplayStatus(b) === 'overdue').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
 
   if (loading) {
@@ -301,20 +282,57 @@ const BillingManagement: React.FC = () => {
       {showViewModal && selectedBill && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-lg">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">View Bill Details</h3>
-            <div className="space-y-2">
-              <p><strong>Customer:</strong> {selectedBill.customer_name}</p>
-              <p><strong>Account Number:</strong> {selectedBill.account_number}</p>
-              <p><strong>Amount:</strong> KES {Number(selectedBill.total_amount).toLocaleString()}</p>
-              <p><strong>Billing Month:</strong> {selectedBill.billing_month}</p>
-              <p><strong>Due Date:</strong> {new Date(selectedBill.due_date).toLocaleDateString()}</p>
-              <p><strong>Status:</strong> {getDisplayStatus(selectedBill)}</p>
-              <p><strong>Created At:</strong> {new Date(selectedBill.created_at).toLocaleString()}</p>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex justify-between">
+              <span>View Bill Details</span>
+              <span className={`text-sm px-2 py-1 rounded-full ${getStatusColor(getDisplayStatus(selectedBill))}`}>
+                {getDisplayStatus(selectedBill).toUpperCase()}
+              </span>
+            </h3>
+            
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded">
+                <div>
+                  <p className="text-xs text-gray-500 uppercase">Customer</p>
+                  <p className="font-medium text-gray-900">{selectedBill.customer_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 uppercase">Account</p>
+                  <p className="font-mono text-gray-900">{selectedBill.account_number}</p>
+                </div>
+              </div>
+
+              {selectedBill.bill_type === 'metered' ? (
+                <div className="border border-blue-100 bg-blue-50/50 p-4 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-blue-800 font-semibold mb-2">
+                    <Droplets className="w-4 h-4" /> Metered Usage Breakdown
+                  </div>
+                  <div className="grid grid-cols-2 gap-y-2 text-sm">
+                    <p className="text-gray-600">Previous Reading:</p>
+                    <p className="font-mono text-right">{selectedBill.meter_reading_previous}</p>
+                    <p className="text-gray-600">Current Reading:</p>
+                    <p className="font-mono text-right">{selectedBill.meter_reading_current}</p>
+                    <p className="text-gray-600 font-medium">Units Consumed:</p>
+                    <p className="font-mono font-bold text-blue-600 text-right">{selectedBill.units_consumed} units</p>
+                    <p className="text-gray-600">Rate per Unit:</p>
+                    <p className="font-mono text-right">KES {selectedBill.rate_per_unit}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-100 p-3 rounded text-sm text-gray-600 italic">
+                  Flat Rate Billing Applied
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <p><strong>Total Amount:</strong> KES {Number(selectedBill.total_amount).toLocaleString()}</p>
+                <p><strong>Due Date:</strong> {new Date(selectedBill.due_date).toLocaleDateString()}</p>
+                <p><strong>Generated:</strong> {new Date(selectedBill.created_at).toLocaleDateString()}</p>
+              </div>
             </div>
             <div className="mt-6 flex justify-end">
               <button
                 onClick={() => setShowViewModal(false)}
-                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
               >
                 Close
               </button>
@@ -341,7 +359,6 @@ const BillingManagement: React.FC = () => {
         />
       )}
 
-      
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
@@ -357,7 +374,7 @@ const BillingManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Amount</p>
+              <p className="text-sm text-gray-600">Total Collected</p>
               <p className="text-2xl font-bold text-gray-900">KES {totalAmount.toLocaleString()}</p>
             </div>
           </div>
@@ -400,27 +417,12 @@ const BillingManagement: React.FC = () => {
           <table className="w-full">
             <thead className="bg-blue-50/50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Account
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Due Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type / Usage</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Due Date</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -428,24 +430,25 @@ const BillingManagement: React.FC = () => {
                 <tr key={bill.id} className="hover:bg-blue-50/30 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{bill.customer_name}</div>
+                    <div className="text-xs font-mono text-gray-500">{bill.account_number}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-mono text-gray-900">{bill.account_number}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        bill.customer_type === 'institution'
-                          ? 'bg-purple-100 text-purple-800'
-                          : 'bg-blue-100 text-blue-800'
-                      }`}>
-                        {bill.customer_type === 'institution' ? '🏢 Institution' : '👤 Normal'}
+                    {bill.bill_type === 'metered' ? (
+                      <div className="flex flex-col">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full w-max">
+                          <Droplets className="w-3 h-3" /> Metered
+                        </span>
+                        <span className="text-xs text-gray-500 mt-1">{bill.units_consumed} units</span>
+                      </div>
+                    ) : (
+                      <span className="inline-flex text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full w-max">
+                        Flat Rate
                       </span>
-                    </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
-                      KES {getCustomerTypeRate(bill.customer_type)}
+                      KES {Number(bill.total_amount).toLocaleString()}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -457,33 +460,19 @@ const BillingManagement: React.FC = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleViewBill(bill.id)}
-                        className="text-blue-600 hover:text-blue-900 transition-colors"
-                        title="View bill details"
-                      >
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => handleViewBill(bill.id)} className="text-blue-600 hover:text-blue-900" title="View Details">
                         View
                       </button>
-                      <button
-                        onClick={() => handleEditBill(bill.id)}
-                        className="text-indigo-600 hover:text-indigo-900 transition-colors"
-                        title="Edit bill status"
-                      >
+                      <button onClick={() => handleEditBill(bill.id)} className="text-indigo-600 hover:text-indigo-900" title="Edit Status">
                         Edit
                       </button>
-                      <button
-                        onClick={() => handleMarkPaid(bill.id)}
-                        className="text-green-600 hover:text-green-900 transition-colors"
-                        title="Mark as paid"
-                      >
-                        Mark Paid
-                      </button>
-                      <button
-                        onClick={() => handleDeleteBill(bill.id)}
-                        className="text-red-600 hover:text-red-900 transition-colors"
-                        title="Delete bill"
-                      >
+                      {getDisplayStatus(bill) !== 'paid' && (
+                        <button onClick={() => handleMarkPaid(bill.id)} className="text-green-600 hover:text-green-900" title="Mark Paid">
+                          Pay
+                        </button>
+                      )}
+                      <button onClick={() => handleDeleteBill(bill.id)} className="text-red-600 hover:text-red-900" title="Delete">
                         Delete
                       </button>
                     </div>
@@ -512,6 +501,7 @@ const BillingManagement: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Generate Bills</h3>
             <p className="text-gray-600 mb-6">
               Generate bills for {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}?
+              This will automatically fetch recorded meter readings and calculate totals.
             </p>
             <div className="flex justify-end gap-3">
               <button
