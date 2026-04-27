@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../../services/api';
+import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
 interface CustomerReading {
@@ -12,20 +12,35 @@ interface CustomerReading {
   already_recorded_reading: string | number | null;
 }
 
+interface ReadingModalData {
+  customer: CustomerReading | null;
+  isOpen: boolean;
+  currentReading: string;
+}
+
 export default function MeterReadings() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7) + '-01');
   const [customers, setCustomers] = useState<CustomerReading[]>([]);
   const [readings, setReadings] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [modalData, setModalData] = useState<ReadingModalData>({
+    customer: null,
+    isOpen: false,
+    currentReading: ''
+  });
   const { addToast } = useToast();
 
   const fetchCustomers = async () => {
     try {
-      const res = await api.get(`/admin/meter-readings/customers?month=${month}`);
-      setCustomers(res.data.data);
+      setLoading(true);
+      const res = await adminService.getMeterReadingCustomers({ month: month.slice(0, 7) });
+      const customersData = res.data.data || res.data.customers || [];
+      setCustomers(customersData);
       
       const initialReadings: Record<number, string> = {};
-      res.data.data.forEach((c: CustomerReading) => {
+      customersData.forEach((c: CustomerReading) => {
         if (c.already_recorded_reading !== null) {
           initialReadings[c.customer_id] = String(c.already_recorded_reading);
         }
@@ -33,6 +48,10 @@ export default function MeterReadings() {
       setReadings(initialReadings);
     } catch (err: any) {
       addToast(err.response?.data?.message || 'Failed to fetch customers', 'error');
+      setCustomers([]);
+      setReadings({});
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -44,24 +63,60 @@ export default function MeterReadings() {
     setReadings(prev => ({ ...prev, [customerId]: value }));
   };
 
+  const openModal = (customer: CustomerReading) => {
+    setModalData({
+      customer,
+      isOpen: true,
+      currentReading: readings[customer.customer_id] || ''
+    });
+  };
+
+  const closeModal = () => {
+    setModalData({ customer: null, isOpen: false, currentReading: '' });
+  };
+
+  const handleModalReadingChange = (value: string) => {
+    setModalData(prev => ({ ...prev, currentReading: value }));
+  };
+
+  const handleModalSave = () => {
+    if (!modalData.customer) return;
+    
+    const customerId = modalData.customer.customer_id;
+    setReadings(prev => ({
+      ...prev,
+      [customerId]: modalData.currentReading
+    }));
+    closeModal();
+  };
+
+  const filteredCustomers = customers.filter(c =>
+    c.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.account_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (c.meter_number && c.meter_number.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
   const handleSave = async () => {
-    setIsSaving(true);
-    const payload = customers.map(c => ({
-      customer_id: c.customer_id,
-      previous_reading: c.previous_reading,
-      current_reading: readings[c.customer_id] !== undefined ? readings[c.customer_id] : null
-    })).filter(r => r.current_reading !== null && r.current_reading !== '');
-
-    if (payload.length === 0) {
-      addToast('No readings entered to save.', 'error');
-      setIsSaving(false);
-      return;
-    }
-
     try {
-      await api.post('/admin/meter-readings', { month, readings: payload });
-      addToast(`Successfully saved ${payload.length} meter readings!`, 'success');
-      fetchCustomers(); 
+      setIsSaving(true);
+      const payload = customers.map(c => ({
+        customer_id: c.customer_id,
+        previous_reading: c.previous_reading,
+        current_reading: readings[c.customer_id] !== undefined ? readings[c.customer_id] : null
+      })).filter(r => r.current_reading !== null && r.current_reading !== '');
+
+      if (payload.length === 0) {
+        addToast('No readings entered to save.', 'error');
+        return;
+      }
+
+      const response = await adminService.saveMeterReadings({ 
+        month: month.slice(0, 7), 
+        readings: payload 
+      });
+      const successMessage = response.data?.message || `Successfully saved ${payload.length} meter readings!`;
+      addToast(successMessage, 'success');
+      await fetchCustomers(); 
     } catch (err: any) {
       addToast(err.response?.data?.message || 'Failed to save readings', 'error');
     } finally {
@@ -69,87 +124,183 @@ export default function MeterReadings() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6 bg-white rounded-lg shadow">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Monthly Field Readings</h2>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Monthly Field Readings</h1>
+          <p className="text-gray-600 mt-1">Record and manage meter readings for the month</p>
+        </div>
         <div className="flex gap-4">
           <input 
-            type="date" 
-            value={month} 
-            onChange={(e) => setMonth(e.target.value)} 
-            className="border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-2 border"
+            type="month" 
+            value={month.slice(0, 7)} 
+            onChange={(e) => setMonth(e.target.value + '-01')} 
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <button 
             onClick={handleSave} 
-            disabled={isSaving}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md transition-colors disabled:bg-blue-400"
+            disabled={isSaving || customers.length === 0}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors whitespace-nowrap"
           >
             {isSaving ? 'Saving...' : 'Save Readings'}
           </button>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account No</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Meter No</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prev Reading</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Reading</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Consumption</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {customers.map((c) => {
-               const current = parseFloat(readings[c.customer_id] || '0');
-               const previous = parseFloat(String(c.previous_reading || 0));
-               const consumption = current > previous ? (current - previous).toFixed(2) : '0.00';
-               
-               return (
-                <tr key={c.customer_id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{c.account_number}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                    {c.meter_number || <span className="text-gray-400 italic">Unassigned</span>}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{c.full_name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{c.location}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{previous}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <input 
-                      type="number"
-                      step="0.01"
-                      placeholder="Enter reading"
-                      className="border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm p-1.5 border w-32"
-                      value={readings[c.customer_id] || ''}
-                      onChange={(e) => handleReadingChange(c.customer_id, e.target.value)}
-                    />
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    {readings[c.customer_id] ? (
-                       <span className={current < previous ? 'text-red-500' : 'text-green-600'}>
-                         {consumption} units
-                       </span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <input
+          type="text"
+          placeholder="Search by customer name, meter number..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
+
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Meter No</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Customer</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prev Reading</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Current Reading</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Consumption</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {filteredCustomers.map((c) => {
+                 const current = parseFloat(readings[c.customer_id] || '0');
+                 const previous = parseFloat(String(c.previous_reading || 0));
+                 const consumption = current > previous ? (current - previous).toFixed(2) : '0.00';
+                 
+                 return (
+                  <tr 
+                    key={c.customer_id} 
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    onClick={() => openModal(c)}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                      {c.account_number}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">{c.full_name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{c.location}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{previous.toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className="text-gray-800 font-medium">{readings[c.customer_id] || '-'}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      {readings[c.customer_id] ? (
+                         <span className={current < previous ? 'text-red-600' : 'text-green-600'}>
+                           {consumption} units
+                         </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {filteredCustomers.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    {customers.length === 0 ? 'No active customers found for this month.' : 'No customers match your search.'}
                   </td>
                 </tr>
-              );
-            })}
-            {customers.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                  No active customers found for this month.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {customers.length === 0 && !loading && (
+        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+          <p className="text-gray-500">No customers found for this month.</p>
+        </div>
+      )}
+
+      {/* Reading Modal */}
+      {modalData.isOpen && modalData.customer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-xl font-bold text-gray-800 mb-6">Record Meter Reading</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Customer Name</label>
+                <div className="p-3 bg-gray-100 rounded-lg text-gray-800 font-medium">
+                  {modalData.customer.full_name}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Meter Number</label>
+                <div className="p-3 bg-gray-100 rounded-lg text-gray-800 font-medium">
+                  {modalData.customer.account_number}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Previous Reading</label>
+                <div className="p-3 bg-gray-100 rounded-lg text-gray-800 font-medium">
+                  {parseFloat(String(modalData.customer.previous_reading)).toFixed(2)}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Current Reading *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Enter current meter reading"
+                  value={modalData.currentReading}
+                  onChange={(e) => handleModalReadingChange(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase mb-2">Total Consumption</label>
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-lg font-bold text-blue-600">
+                    {modalData.currentReading 
+                      ? (parseFloat(modalData.currentReading) - parseFloat(String(modalData.customer.previous_reading))).toFixed(2) 
+                      : '0.00'} units
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+              <button
+                onClick={closeModal}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleModalSave}
+                disabled={!modalData.currentReading}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors"
+              >
+                Save Reading
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

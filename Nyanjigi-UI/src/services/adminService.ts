@@ -85,6 +85,15 @@ export const adminService = {
   adjustCustomerBalance: (id: number, data: { amount: number; notes?: string }) => 
     api.post(`/customers/${id}/adjust-balance`, data),
 
+  // METER READINGS
+  getMeterReadingCustomers: async (params: { month: string }) => {
+    return api.get(`/admin/meter-readings/customers?month=${params.month}-01`);
+  },
+
+  saveMeterReadings: async (data: { month: string; readings: any[] }) => {
+    return api.post('/admin/meter-readings', data);
+  },
+
 
   // BILLING MANAGEMENT
   // Generate monthly bills for all customers
