@@ -91,7 +91,8 @@ export const adminService = {
   },
 
   saveMeterReadings: async (data: { month: string; readings: any[] }) => {
-    return api.post('/admin/meter-readings', data);
+    const normalizedMonth = data.month.length === 7 ? `${data.month}-01` : data.month;
+    return api.post('/admin/meter-readings', { ...data, month: normalizedMonth });
   },
 
 
