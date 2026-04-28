@@ -5,16 +5,17 @@ class SMSService {
 constructor() {
     this.apiKey = process.env.AT_API_KEY;
     this.username = process.env.AT_USERNAME;
+    this.senderId = process.env.AT_SENDER_ID || 'NYANJIGIWTR'; // Sender ID for Safaricom
     
     this.sandbox = process.env.AT_ENV === 'sandbox';
     
-    this.senderId = null;
     this.at = null;
     this.sms = null;
     
     console.log('SMS Service Configuration:');
     console.log('AT_USERNAME:', this.username);
     console.log('AT_ENV:', process.env.AT_ENV);
+    console.log('AT_SENDER_ID:', this.senderId);
     console.log('Sandbox mode:', this.sandbox);
   }
 
@@ -22,7 +23,10 @@ constructor() {
   async initialize() {
     try {
       const settings = await SystemSettings.getNotificationSettings();
-      this.senderId = null; // Temporarily disable custom sender ID
+      // Use environment sender ID or fallback to NYANJIGIWTR for Safaricom
+      if (!this.senderId) {
+        this.senderId = process.env.AT_SENDER_ID || 'NYANJIGIWTR';
+      }
       
       if (!this.apiKey || !this.username) {
         console.warn("SMS Service: Africa's Talking credentials not configured");
@@ -98,9 +102,10 @@ constructor() {
         message: message
       };
       
-      // Only add sender ID if it's provided and valid
-      if (options.senderId && options.senderId !== 'NYANJIGI') {
-        sendOptions.from = options.senderId;
+      // Apply sender ID for Safaricom numbers or custom sender ID if provided
+      const senderIdToUse = options.senderId || (this.isSafaricomNumber(formattedPhone) ? this.senderId : null);
+      if (senderIdToUse) {
+        sendOptions.from = senderIdToUse;
       }
       
       console.log('Send options:', sendOptions);
@@ -179,9 +184,10 @@ constructor() {
         message: message
       };
       
-      // Only add sender ID if not in sandbox mode and sender ID is available
-      if (!this.sandbox && (options.senderId || this.senderId)) {
-        sendOptions.from = options.senderId || this.senderId;
+      // Apply sender ID for Safaricom recipients or if custom sender ID is provided
+      const senderIdToUse = options.senderId || (this.senderId && this.hasSafaricomNumbers(formattedRecipients) ? this.senderId : null);
+      if (!this.sandbox && senderIdToUse) {
+        sendOptions.from = senderIdToUse;
       }
       
       const response = await this.sms.send(sendOptions);
@@ -331,6 +337,18 @@ constructor() {
     }
     
     return message.trim();
+  }
+
+  // Detect if phone number is a Safaricom number (+254 7XX)
+  isSafaricomNumber(phoneNumber) {
+    // Safaricom uses +254 7XX prefix in Kenya
+    return phoneNumber && phoneNumber.match(/^\+2547\d{8}$/) !== null;
+  }
+
+  // Check if any phone numbers in a list are Safaricom numbers
+  hasSafaricomNumbers(phoneNumbers) {
+    if (!Array.isArray(phoneNumbers)) return false;
+    return phoneNumbers.some(phone => this.isSafaricomNumber(phone));
   }
 
   // Format phone number for Africa's Talking
