@@ -27,14 +27,44 @@ const PaymentManagement: React.FC = () => {
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [showModal, setShowModal] = useState(false);
 
+  // Pagination and filtering states
+  const [pagination, setPagination] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [isSearching, setIsSearching] = useState(false);
+
   useEffect(() => {
-    fetchPayments();
+    fetchPayments(1);
   }, []);
 
-  const fetchPayments = async () => {
+  const fetchPayments = async (page: number = 1, search: string = '', status: string = 'all', method: string = 'all') => {
     try {
-      const response = await adminService.getPayments();
-      setPayments(response.data?.data?.payments || []);
+      setLoading(true);
+      const params: any = {
+        page,
+        per_page: itemsPerPage,
+      };
+
+      if (search.trim()) {
+        params.search = search.trim();
+      }
+
+      if (status !== 'all') {
+        params.status = status;
+      }
+
+      if (method !== 'all') {
+        params.payment_method = method;
+      }
+
+      const response = await adminService.getPayments(params);
+      const apiData = response.data?.data || response.data;
+      const paymentsData = apiData.payments || [];
+      const paginationData = apiData.pagination || null;
+
+      setPayments(paymentsData);
+      setPagination(paginationData);
+      setCurrentPage(page);
     } catch (error) {
       showToast('Failed to fetch payments', 'error');
     } finally {
@@ -45,12 +75,51 @@ const PaymentManagement: React.FC = () => {
   const verifyPayment = async (paymentId: number) => {
     try {
       await adminService.verifyPayment(paymentId);
-      await fetchPayments();
+      fetchPayments(currentPage, searchTerm, statusFilter, methodFilter);
       showToast('Payment verified successfully', 'success');
     } catch (error) {
       showToast('Failed to verify payment', 'error');
     }
   };
+
+  // Handle search term changes
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const term = e.target.value;
+    setSearchTerm(term);
+    setCurrentPage(1);
+    setIsSearching(true);
+  };
+
+  // Handle status filter changes
+  const handleStatusChange = (status: string) => {
+    setStatusFilter(status);
+    setCurrentPage(1);
+  };
+
+  // Handle method filter changes
+  const handleMethodChange = (method: string) => {
+    setMethodFilter(method);
+    setCurrentPage(1);
+  };
+
+  // Handle items per page change
+  const handleItemsPerPageChange = (newPerPage: number) => {
+    setItemsPerPage(newPerPage);
+    setCurrentPage(1);
+  };
+
+  // Handle pagination change
+  const handlePageChange = (page: number) => {
+    fetchPayments(page, searchTerm, statusFilter, methodFilter);
+  };
+
+  // Trigger search/filter whenever searchTerm, statusFilter, methodFilter, or itemsPerPage changes
+  useEffect(() => {
+    if (isSearching) {
+      fetchPayments(1, searchTerm, statusFilter, methodFilter);
+      setIsSearching(false);
+    }
+  }, [searchTerm, statusFilter, methodFilter, itemsPerPage]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -92,16 +161,6 @@ const PaymentManagement: React.FC = () => {
     }
   };
 
-  const filteredPayments = payments.filter(payment => {
-    const matchesSearch = payment.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         payment.account_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         payment.transaction_id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || payment.status === statusFilter;
-    const matchesMethod = methodFilter === 'all' || payment.payment_method === methodFilter;
-    
-    return matchesSearch && matchesStatus && matchesMethod;
-  });
-
   const totalAmount = payments.reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
   const completedAmount = payments.filter(p => p.status === 'completed').reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
   const pendingAmount = payments.filter(p => p.status === 'pending').reduce((sum, payment) => sum + parseFloat(payment.amount), 0);
@@ -131,7 +190,7 @@ const PaymentManagement: React.FC = () => {
             <CreditCard className="w-8 h-8 text-blue-600" />
             <div>
               <p className="text-sm text-gray-600">Total Payments</p>
-              <p className="text-2xl font-bold text-gray-900">{payments.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{pagination?.total || payments.length}</p>
             </div>
           </div>
         </div>
@@ -173,13 +232,13 @@ const PaymentManagement: React.FC = () => {
               type="text"
               placeholder="Search payments..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={handleSearchChange}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => handleStatusChange(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Status</option>
@@ -190,7 +249,7 @@ const PaymentManagement: React.FC = () => {
           </select>
           <select
             value={methodFilter}
-            onChange={(e) => setMethodFilter(e.target.value)}
+            onChange={(e) => handleMethodChange(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Methods</option>
@@ -232,7 +291,7 @@ const PaymentManagement: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredPayments.map((payment) => (
+              {payments.map((payment) => (
                 <tr key={payment.id} className="hover:bg-blue-50/30 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
@@ -298,7 +357,79 @@ const PaymentManagement: React.FC = () => {
         </div>
       </div>
 
-      {filteredPayments.length === 0 && (
+      {/* Pagination Controls */}
+      {pagination && (
+        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mr-2">Items per page:</label>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+            <div className="text-sm text-gray-600">
+              Showing {(pagination.current_page - 1) * pagination.per_page + 1} to {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of {pagination.total} results
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handlePageChange(pagination.current_page - 1)}
+              disabled={!pagination.has_prev}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Previous
+            </button>
+
+            {/* Page Numbers */}
+            <div className="flex gap-1">
+              {Array.from({ length: pagination.total_pages }, (_, i) => i + 1).map((page) => {
+                const showPage = 
+                  page === 1 || 
+                  page === pagination.total_pages || 
+                  Math.abs(page - pagination.current_page) <= 1;
+                
+                if (!showPage && (page === 2 || page === pagination.total_pages - 1)) {
+                  return <span key={`ellipsis-${page}`} className="px-2 py-1">...</span>;
+                }
+
+                if (!showPage) return null;
+
+                return (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${
+                      page === pagination.current_page
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => handlePageChange(pagination.current_page + 1)}
+              disabled={!pagination.has_next}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
+      {payments.length === 0 && (
         <div className="text-center py-12">
           <CreditCard className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No payments found</h3>

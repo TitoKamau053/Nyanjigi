@@ -542,15 +542,37 @@ const CustomerManagement: React.FC = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [adjustCustomer, setAdjustCustomer] = useState<Customer | null>(null);
   
+  // Pagination and Filtering States
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [selectedZone, setSelectedZone] = useState<'Nyakahura' | 'G3' | 'Githunguri' | ''>('');
+  const [isSearching, setIsSearching] = useState(false);
+  
   const { addToast } = useToast();
 
   useEffect(() => {
-    fetchCustomers();
+    fetchCustomers(1);
   }, []);
 
-  const fetchCustomers = async () => {
+  const fetchCustomers = async (page: number = 1, search: string = '', zone: string = '') => {
     try {
-      const response = await adminService.getCustomers();
+      setLoading(true);
+      // Build query parameters
+      const params: any = {
+        page,
+        per_page: itemsPerPage,
+      };
+      
+      if (search.trim()) {
+        params.search = search.trim();
+      }
+      
+      if (zone) {
+        params.zone = zone;
+      }
+
+      // Fetch customers with pagination and filters via API
+      const response = await adminService.getCustomers(params);
       const apiData = response.data.data || response.data;
       const customersList = apiData.customers || [];
       
@@ -597,6 +619,7 @@ const CustomerManagement: React.FC = () => {
       const paginationData = apiData.pagination || null;
       setCustomers(customersWithBalances);
       setPagination(paginationData);
+      setCurrentPage(page);
     } catch (error) {
       console.error('Error fetching customers with outstanding balances:', error);
       addToast('Failed to fetch customers', 'error');
@@ -605,16 +628,43 @@ const CustomerManagement: React.FC = () => {
     }
   };
 
-  const filteredCustomers = customers.filter(customer =>
-    (customer.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (customer.account_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (customer.email || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Handle search term changes with debouncing
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const term = e.target.value;
+    setSearchTerm(term);
+    setCurrentPage(1); // Reset to first page on search
+    setIsSearching(true);
+  };
+
+  // Handle zone filter changes
+  const handleZoneChange = (zone: string) => {
+    setSelectedZone(zone as 'Nyakahura' | 'G3' | 'Githunguri' | '');
+    setCurrentPage(1); // Reset to first page on filter change
+  };
+
+  // Handle items per page change
+  const handleItemsPerPageChange = (newPerPage: number) => {
+    setItemsPerPage(newPerPage);
+    setCurrentPage(1); // Reset to first page
+  };
+
+  // Handle pagination change
+  const handlePageChange = (page: number) => {
+    fetchCustomers(page, searchTerm, selectedZone);
+  };
+
+  // Trigger search/filter whenever searchTerm, selectedZone, or itemsPerPage changes
+  useEffect(() => {
+    if (isSearching) {
+      fetchCustomers(1, searchTerm, selectedZone);
+      setIsSearching(false);
+    }
+  }, [searchTerm, selectedZone, itemsPerPage]);
 
   const toggleCustomerStatus = async (customerId: number) => {
     try {
       await adminService.toggleCustomerStatus(customerId);
-      await fetchCustomers();
+      fetchCustomers(currentPage, searchTerm, selectedZone);
       addToast('Customer status updated successfully', 'success');
     } catch (error) {
       addToast('Failed to update customer status', 'error');
@@ -650,7 +700,7 @@ const CustomerManagement: React.FC = () => {
         </div>
         <div className="flex gap-3">
           <button
-            onClick={fetchCustomers}
+            onClick={() => fetchCustomers(currentPage, searchTerm, selectedZone)}
             className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
             title="Refresh and recalculate outstanding balances"
           >
@@ -667,37 +717,38 @@ const CustomerManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Search and Stats */}
+      {/* Search, Filter and Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="md:col-span-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
-              placeholder="Search customers..."
+              placeholder="Search by name, account, or email..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={handleSearchChange}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
+        </div>
+        <div>
+          <select
+            value={selectedZone}
+            onChange={(e) => handleZoneChange(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+          >
+            <option value="">All Zones</option>
+            <option value="Nyakahura">Nyakahura</option>
+            <option value="G3">G3</option>
+            <option value="Githunguri">Githunguri</option>
+          </select>
         </div>
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30">
           <div className="flex items-center gap-3">
             <Users className="w-8 h-8 text-blue-600" />
             <div>
               <p className="text-sm text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">{customers.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30">
-          <div className="flex items-center gap-3">
-            <ToggleRight className="w-8 h-8 text-green-600" />
-            <div>
-              <p className="text-sm text-gray-600">Active</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {customers.filter(c => c.status === 'active').length}
-              </p>
+              <p className="text-2xl font-bold text-gray-900">{pagination?.total || customers.length}</p>
             </div>
           </div>
         </div>
@@ -736,7 +787,7 @@ const CustomerManagement: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredCustomers.map((customer) => (
+              {customers.map((customer) => (
                 <tr key={customer.id} className="hover:bg-blue-50/30 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
@@ -827,12 +878,85 @@ const CustomerManagement: React.FC = () => {
         </div>
       </div>
 
-      {filteredCustomers.length === 0 && (
+      {/* Pagination Controls */}
+      {pagination && (
+        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mr-2">Items per page:</label>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+            <div className="text-sm text-gray-600">
+              Showing {(pagination.current_page - 1) * pagination.per_page + 1} to {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of {pagination.total} results
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handlePageChange(pagination.current_page - 1)}
+              disabled={!pagination.has_prev}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Previous
+            </button>
+
+            {/* Page Numbers */}
+            <div className="flex gap-1">
+              {Array.from({ length: pagination.total_pages }, (_, i) => i + 1).map((page) => {
+                // Show first page, last page, current page, and pages around current
+                const showPage = 
+                  page === 1 || 
+                  page === pagination.total_pages || 
+                  Math.abs(page - pagination.current_page) <= 1;
+                
+                if (!showPage && (page === 2 || page === pagination.total_pages - 1)) {
+                  return <span key={`ellipsis-${page}`} className="px-2 py-1">...</span>;
+                }
+
+                if (!showPage) return null;
+
+                return (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${
+                      page === pagination.current_page
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => handlePageChange(pagination.current_page + 1)}
+              disabled={!pagination.has_next}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+
+      {customers.length === 0 && (
         <div className="text-center py-12">
           <Users className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No customers found</h3>
           <p className="mt-1 text-sm text-gray-500">
-            {searchTerm ? 'Try adjusting your search terms.' : 'Get started by adding a new customer.'}
+            {searchTerm || selectedZone ? 'Try adjusting your search or filter terms.' : 'Get started by adding a new customer.'}
           </p>
         </div>
       )}
@@ -840,7 +964,7 @@ const CustomerManagement: React.FC = () => {
       {showAddModal && (
         <AddCustomerModal
           onClose={() => setShowAddModal(false)}
-          onCustomerAdded={fetchCustomers}
+          onCustomerAdded={() => fetchCustomers(1, '', '')}
         />
       )}
 
@@ -861,7 +985,7 @@ const CustomerManagement: React.FC = () => {
             setShowAdjustModal(false);
             setAdjustCustomer(null);
           }}
-          onSuccess={fetchCustomers}
+          onSuccess={() => fetchCustomers(currentPage, searchTerm, selectedZone)}
         />
       )}
     </div>

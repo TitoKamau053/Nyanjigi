@@ -32,6 +32,10 @@ export default function MeterReadings() {
   });
   const { addToast } = useToast();
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const fetchCustomers = async () => {
     try {
       setLoading(true);
@@ -95,6 +99,23 @@ export default function MeterReadings() {
     c.account_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (c.meter_number && c.meter_number.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
+  const paginatedCustomers = filteredCustomers.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1); // Reset to first page on search
+  };
+
+  const handleItemsPerPageChange = (newPerPage: number) => {
+    setItemsPerPage(newPerPage);
+    setCurrentPage(1);
+  };
 
   const handleSave = async () => {
     try {
@@ -161,7 +182,7 @@ export default function MeterReadings() {
           type="text"
           placeholder="Search by customer name, meter number..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
+          onChange={handleSearchChange}
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
       </div>
@@ -180,7 +201,7 @@ export default function MeterReadings() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {filteredCustomers.map((c) => {
+              {paginatedCustomers.map((c) => {
                  const current = parseFloat(readings[c.customer_id] || '0');
                  const previous = parseFloat(String(c.previous_reading || 0));
                  const consumption = current > previous ? (current - previous).toFixed(2) : '0.00';
@@ -212,7 +233,7 @@ export default function MeterReadings() {
                   </tr>
                 );
               })}
-              {filteredCustomers.length === 0 && (
+              {paginatedCustomers.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                     {customers.length === 0 ? 'No active customers found for this month.' : 'No customers match your search.'}
@@ -223,6 +244,78 @@ export default function MeterReadings() {
           </table>
         </div>
       </div>
+
+      {/* Pagination Controls */}
+      {filteredCustomers.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700 mr-2">Items per page:</label>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+            <div className="text-sm text-gray-600">
+              Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredCustomers.length)} of {filteredCustomers.length} results
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Previous
+            </button>
+
+            {/* Page Numbers */}
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                const showPage = 
+                  page === 1 || 
+                  page === totalPages || 
+                  Math.abs(page - currentPage) <= 1;
+                
+                if (!showPage && (page === 2 || page === totalPages - 1)) {
+                  return <span key={`ellipsis-${page}`} className="px-2 py-1">...</span>;
+                }
+
+                if (!showPage) return null;
+
+                return (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${
+                      page === currentPage
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {customers.length === 0 && !loading && (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
