@@ -70,18 +70,20 @@ const AdminFines: React.FC = () => {
     }
   };
 
-  // Handle search term changes
+// Handle search term changes (ONLY updates state now)
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const term = e.target.value;
-    setSearchTerm(term);
+    setSearchTerm(e.target.value);
+  };
+
+  // Trigger search ONLY when button is clicked
+  const handleSearchSubmit = () => {
     setCurrentPage(1);
     setIsSearching(true);
   };
 
-  // Handle status filter changes
+// Handle status filter changes (ONLY updates state now)
   const handleStatusChange = (status: string) => {
     setStatusFilter(status);
-    setCurrentPage(1);
   };
 
   // Handle items per page change
@@ -127,19 +129,21 @@ const AdminFines: React.FC = () => {
       </div>
 
       {/* Search and Filter */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2">
-          <div className="relative">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="md:col-span-2 flex gap-2">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
               placeholder="Search by customer name or account..."
               value={searchTerm}
               onChange={handleSearchChange}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearchSubmit()}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
         </div>
+        
         <div>
           <select
             value={statusFilter}
@@ -151,6 +155,15 @@ const AdminFines: React.FC = () => {
             <option value="paid">Paid</option>
             <option value="waived">Waived</option>
           </select>
+        </div>
+
+        <div>
+          <button
+            onClick={handleSearchSubmit}
+            className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+          >
+            Search
+          </button>
         </div>
       </div>
 
