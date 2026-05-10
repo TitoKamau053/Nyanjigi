@@ -561,22 +561,38 @@ const fetchInitialData = async () => {
     try {
       setLoading(true);
       
-      // Fetch ALL customers and ALL financial records concurrently
-      const [customersRes, billsRes, contribsRes, finesRes, paymentsRes] = await Promise.all([
-        adminService.getCustomers({ page: 1, limit: 2000 }), 
-        adminService.getBills({ limit: 2000 }),
-        adminService.getContributions({ limit: 2000 }),
-        adminService.getFines({ limit: 2000 }),
-        adminService.getPayments({ limit: 10000 })
-      ]);
+      // Helper function to fetch all data page-by-page while respecting the backend's limit limit
+      const fetchAllPages = async (apiFunc: (params: any) => Promise<any>) => {
+        let allItems: any[] = [];
+        let currentPage = 1;
+        let totalPages = 1;
 
-      const apiData = customersRes.data.data || customersRes.data;
-      const customersList = apiData.customers || [];
-      
-      const bills = billsRes.data.data?.bills || billsRes.data.bills || [];
-      const contributions = contribsRes.data.data?.contributions || contribsRes.data.contributions || [];
-      const fines = finesRes.data.data?.fines || finesRes.data.fines || [];
-      const payments = paymentsRes.data.data?.payments || paymentsRes.data.payments || [];
+        do {
+          // Use a safe limit like 100 that the backend validation will accept
+          const response = await apiFunc({ page: currentPage, limit: 100 });
+          const data = response.data.data || response.data;
+          
+          // Find the array in the response (could be 'customers', 'bills', 'payments', etc.)
+          const arrayKey = Object.keys(data).find(key => Array.isArray(data[key]));
+          if (arrayKey) {
+            allItems = [...allItems, ...data[arrayKey]];
+          }
+          
+          totalPages = data.pagination?.total_pages || 1;
+          currentPage++;
+        } while (currentPage <= totalPages);
+
+        return allItems;
+      };
+
+      // Fetch ALL chunks concurrently
+      const [customersList, bills, contributions, fines, payments] = await Promise.all([
+        fetchAllPages(adminService.getCustomers),
+        fetchAllPages(adminService.getBills),
+        fetchAllPages(adminService.getContributions),
+        fetchAllPages(adminService.getFines),
+        fetchAllPages(adminService.getPayments)
+      ]);
 
       // Calculate Net Balance = (Total Charges) - (Total Payments)
       const customersWithBalances = customersList.map((customer: ApiCustomer) => {
@@ -594,9 +610,9 @@ const fetchInitialData = async () => {
 
         return {
           ...customer,
-          status: customer.is_active === 1 ? 'active' : 'inactive',
+          status: (customer.is_active === 1 ? 'active' : 'inactive') as 'active' | 'inactive',
           outstanding_balance: netBalance,
-          last_payment_date: null,
+          last_payment_date: undefined,
         };
       });
 
