@@ -197,6 +197,21 @@ const BillingManagement: React.FC = () => {
     setIsSearching(true);
   };
 
+  // Handle Enter key press to trigger search immediately
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Clear any pending debounce timeout
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+      // Fetch immediately
+      setCurrentPage(1);
+      fetchBills(1, searchTerm, statusFilter);
+      setIsSearching(false);
+    }
+  };
+
   // Handle status filter changes
   const handleStatusChange = (status: string) => {
     setStatusFilter(status);
@@ -215,7 +230,7 @@ const BillingManagement: React.FC = () => {
     fetchBills(page, searchTerm, statusFilter);
   };
 
-  // Trigger search/filter with 15-second debounce for search, immediate for status/items change
+  // Trigger search/filter with 5-second debounce for search, immediate for status/items change
   useEffect(() => {
     // Clear previous timeout
     if (debounceTimeoutRef.current) {
@@ -224,8 +239,8 @@ const BillingManagement: React.FC = () => {
 
     if (isSearching) {
       // For status filter changes, fetch immediately
-      // For search term changes, wait 15 seconds (15000ms)
-      const delay = searchTerm.trim() ? 15000 : 0;
+      // For search term changes, wait 5 seconds (5000ms)
+      const delay = searchTerm.trim() ? 5000 : 0;
       
       debounceTimeoutRef.current = setTimeout(() => {
         fetchBills(1, searchTerm, statusFilter);

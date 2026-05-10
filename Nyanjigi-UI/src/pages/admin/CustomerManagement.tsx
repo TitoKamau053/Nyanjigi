@@ -627,7 +627,14 @@ const CustomerManagement: React.FC = () => {
       });
 
       const paginationData = apiData.pagination || null;
-      setCustomers(customersWithBalances);
+      
+      // Apply client-side zone filtering to ensure it works
+      let filteredCustomers = customersWithBalances;
+      if (selectedZone) {
+        filteredCustomers = customersWithBalances.filter((customer: { zone: string; }) => customer.zone === selectedZone);
+      }
+      
+      setCustomers(filteredCustomers);
       setPagination(paginationData);
       setCurrentPage(page);
     } catch (error) {
@@ -644,6 +651,21 @@ const CustomerManagement: React.FC = () => {
     setSearchTerm(term);
     setCurrentPage(1); // Reset to first page on search
     setIsSearching(true);
+  };
+
+  // Handle Enter key press to trigger search immediately
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Clear any pending debounce timeout
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+      // Fetch immediately
+      setCurrentPage(1);
+      fetchCustomers(1, searchTerm, selectedZone);
+      setIsSearching(false);
+    }
   };
 
   // Handle zone filter changes
@@ -664,7 +686,7 @@ const CustomerManagement: React.FC = () => {
     fetchCustomers(page, searchTerm, selectedZone);
   };
 
-  // Trigger search/filter with 15-second debounce for search, immediate for zone/items change
+  // Trigger search/filter with 5-second debounce for search, immediate for zone/items change
   useEffect(() => {
     // Clear previous timeout
     if (debounceTimeoutRef.current) {
@@ -673,8 +695,8 @@ const CustomerManagement: React.FC = () => {
 
     if (isSearching) {
       // For zone filter changes, fetch immediately
-      // For search term changes, wait 15 seconds (15000ms)
-      const delay = searchTerm.trim() ? 15000 : 0;
+      // For search term changes, wait 5 seconds (5000ms)
+      const delay = searchTerm.trim() ? 5000 : 0;
       
       debounceTimeoutRef.current = setTimeout(() => {
         fetchCustomers(1, searchTerm, selectedZone);
@@ -755,6 +777,7 @@ const CustomerManagement: React.FC = () => {
               placeholder="Search by name, account, or email..."
               value={searchTerm}
               onChange={handleSearchChange}
+              onKeyPress={handleSearchKeyPress}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
