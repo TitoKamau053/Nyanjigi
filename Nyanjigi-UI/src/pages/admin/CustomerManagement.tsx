@@ -531,7 +531,11 @@ const ViewCustomerModal: React.FC<{
 };
 
 const CustomerManagement: React.FC = () => {
+  // Master list of all calculated customers
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
+  // Currently displayed customers (after filter & pagination)
   const [customers, setCustomers] = useState<Customer[]>([]);
+  
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -542,179 +546,136 @@ const CustomerManagement: React.FC = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [adjustCustomer, setAdjustCustomer] = useState<Customer | null>(null);
   
-  // Pagination and Filtering States
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedZone, setSelectedZone] = useState<'Nyakahura' | 'G3' | 'Githunguri' | ''>('');
-  const [isSearching, setIsSearching] = useState(false);
-  
-  // Debounce ref for search (15 seconds)
-  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const { addToast } = useToast();
 
+  // 1. FETCH EVERYTHING EXACTLY ONCE
   useEffect(() => {
-    fetchCustomers(1);
-    
-    // Cleanup on unmount
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-    };
+    fetchInitialData();
   }, []);
 
-  const fetchCustomers = async (page: number = 1, search: string = '', zone: string = '') => {
+const fetchInitialData = async () => {
     try {
       setLoading(true);
-      // Build query parameters
-      const params: any = {
-        page,
-        per_page: itemsPerPage,
-      };
       
-      if (search.trim()) {
-        params.search = search.trim();
-      }
-      
-      if (zone) {
-        params.zone = zone;
-      }
-
-      // Fetch customers with pagination and filters via API
-      const response = await adminService.getCustomers(params);
-      const apiData = response.data.data || response.data;
-      const customersList = apiData.customers || [];
-      
-      // UPDATED: Fetch all bills, contributions, fines AND payments
-      const [billsResponse, contributionsResponse, finesResponse, paymentsResponse] = await Promise.all([
-        adminService.getBills({ limit: 1000 }),
-        adminService.getContributions({ limit: 1000 }),
-        adminService.getFines({ limit: 1000 }),
-        adminService.getPayments({ limit: 10000 }) // Fetch enough payments to calculate balances
+      // Fetch ALL customers and ALL financial records concurrently
+      const [customersRes, billsRes, contribsRes, finesRes, paymentsRes] = await Promise.all([
+        adminService.getCustomers({ page: 1, limit: 2000 }), 
+        adminService.getBills({ limit: 2000 }),
+        adminService.getContributions({ limit: 2000 }),
+        adminService.getFines({ limit: 2000 }),
+        adminService.getPayments({ limit: 10000 })
       ]);
 
-      const bills = billsResponse.data.data?.bills || billsResponse.data.bills || [];
-      const contributions = contributionsResponse.data.data?.contributions || contributionsResponse.data.contributions || [];
-      const fines = finesResponse.data.data?.fines || finesResponse.data.fines || [];
-      const payments = paymentsResponse.data.data?.payments || paymentsResponse.data.payments || [];
+      const apiData = customersRes.data.data || customersRes.data;
+      const customersList = apiData.customers || [];
+      
+      const bills = billsRes.data.data?.bills || billsRes.data.bills || [];
+      const contributions = contribsRes.data.data?.contributions || contribsRes.data.contributions || [];
+      const fines = finesRes.data.data?.fines || finesRes.data.fines || [];
+      const payments = paymentsRes.data.data?.payments || paymentsRes.data.payments || [];
 
       // Calculate Net Balance = (Total Charges) - (Total Payments)
       const customersWithBalances = customersList.map((customer: ApiCustomer) => {
-        // Filter items for this specific customer
         const customerBills = bills.filter((bill: any) => bill.customer_id === customer.id);
         const customerContributions = contributions.filter((c: any) => c.customer_id === customer.id);
         const customerFines = fines.filter((fine: any) => fine.customer_id === customer.id);
         const customerPayments = payments.filter((p: any) => p.customer_id === customer.id && p.status === 'completed');
 
-        // Sum up Total Charges (Debts)
         const totalBills = customerBills.reduce((sum: number, b: any) => sum + (Number(b.total_amount) || 0), 0);
         const totalContribs = customerContributions.reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0);
         const totalFines = customerFines.reduce((sum: number, f: any) => sum + (Number(f.amount) || 0), 0);
-        
-        // Sum up Total Paid (Credits)
         const totalPaid = customerPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
 
-        // Net Balance: Positive = Debt, Negative = Overpayment
         const netBalance = (totalBills + totalContribs + totalFines) - totalPaid;
 
         return {
           ...customer,
           status: customer.is_active === 1 ? 'active' : 'inactive',
           outstanding_balance: netBalance,
-          last_payment_date: null, // Default value since not provided by API
+          last_payment_date: null,
         };
       });
 
-      const paginationData = apiData.pagination || null;
-      
-      // Apply client-side zone filtering to ensure it works
-      let filteredCustomers = customersWithBalances;
-      if (selectedZone) {
-        filteredCustomers = customersWithBalances.filter((customer: { zone: string; }) => customer.zone === selectedZone);
-      }
-      
-      setCustomers(filteredCustomers);
-      setPagination(paginationData);
-      setCurrentPage(page);
+      // Store the complete master list
+      setAllCustomers(customersWithBalances);
     } catch (error) {
-      console.error('Error fetching customers with outstanding balances:', error);
+      console.error('Error fetching initial data:', error);
       addToast('Failed to fetch customers', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle search term changes with debouncing
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const term = e.target.value;
-    setSearchTerm(term);
-    setCurrentPage(1); // Reset to first page on search
-    setIsSearching(true);
-  };
+  // 2. CLIENT-SIDE FILTERING & PAGINATION
+  // This runs instantly in-memory whenever search, zone, or page changes.
+  useEffect(() => {
+    let filtered = allCustomers;
 
-  // Handle Enter key press to trigger search immediately
-  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // Clear any pending debounce timeout
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-      // Fetch immediately
-      setCurrentPage(1);
-      fetchCustomers(1, searchTerm, selectedZone);
-      setIsSearching(false);
+    // Apply Search Filter
+    if (searchTerm.trim()) {
+      const lowerTerm = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter(c => 
+        c.full_name.toLowerCase().includes(lowerTerm) ||
+        c.account_number.toLowerCase().includes(lowerTerm) ||
+        (c.email && c.email.toLowerCase().includes(lowerTerm))
+      );
     }
+
+    // Apply Zone Filter
+    if (selectedZone) {
+      filtered = filtered.filter(c => c.zone === selectedZone);
+    }
+
+    // Calculate Pagination Details
+    const total = filtered.length;
+    const total_pages = Math.ceil(total / itemsPerPage);
+    
+    // Ensure currentPage isn't out of bounds if filtering reduces the total pages
+    const validPage = Math.max(1, Math.min(currentPage, Math.max(1, total_pages)));
+    if (validPage !== currentPage) {
+      setCurrentPage(validPage);
+      return; // The state update will re-trigger this effect
+    }
+
+    // Slice the array for the current page
+    const startIndex = (validPage - 1) * itemsPerPage;
+    const paginated = filtered.slice(startIndex, startIndex + itemsPerPage);
+
+    setCustomers(paginated);
+    setPagination({
+      current_page: validPage,
+      per_page: itemsPerPage,
+      total: total,
+      total_pages: total_pages,
+      has_next: validPage < total_pages,
+      has_prev: validPage > 1,
+    });
+  }, [allCustomers, searchTerm, selectedZone, currentPage, itemsPerPage]);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+    setCurrentPage(1); // Reset to first page
   };
 
-  // Handle zone filter changes
   const handleZoneChange = (zone: string) => {
     setSelectedZone(zone as 'Nyakahura' | 'G3' | 'Githunguri' | '');
-    setCurrentPage(1); // Reset to first page on filter change
-    setIsSearching(true); // Trigger immediate fetch for zone filter
+    setCurrentPage(1); // Reset to first page
   };
 
-  // Handle items per page change
   const handleItemsPerPageChange = (newPerPage: number) => {
     setItemsPerPage(newPerPage);
     setCurrentPage(1); // Reset to first page
   };
 
-  // Handle pagination change
-  const handlePageChange = (page: number) => {
-    fetchCustomers(page, searchTerm, selectedZone);
-  };
-
-  // Trigger search/filter with 5-second debounce for search, immediate for zone/items change
-  useEffect(() => {
-    // Clear previous timeout
-    if (debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-    }
-
-    if (isSearching) {
-      // For zone filter changes, fetch immediately
-      // For search term changes, wait 5 seconds (5000ms)
-      const delay = searchTerm.trim() ? 5000 : 0;
-      
-      debounceTimeoutRef.current = setTimeout(() => {
-        fetchCustomers(1, searchTerm, selectedZone);
-        setIsSearching(false);
-      }, delay);
-    }
-
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-    };
-  }, [searchTerm, selectedZone, itemsPerPage, isSearching]);
-
   const toggleCustomerStatus = async (customerId: number) => {
     try {
       await adminService.toggleCustomerStatus(customerId);
-      fetchCustomers(currentPage, searchTerm, selectedZone);
+      // Re-fetch everything to ensure sync with DB after a mutation
+      fetchInitialData();
       addToast('Customer status updated successfully', 'success');
     } catch (error) {
       addToast('Failed to update customer status', 'error');
@@ -731,7 +692,7 @@ const CustomerManagement: React.FC = () => {
     setShowAdjustModal(true);
   };
 
-  if (loading) {
+  if (loading && allCustomers.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -750,11 +711,11 @@ const CustomerManagement: React.FC = () => {
         </div>
         <div className="flex gap-3">
           <button
-            onClick={() => fetchCustomers(currentPage, searchTerm, selectedZone)}
+            onClick={() => fetchInitialData()}
             className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-            title="Refresh and recalculate outstanding balances"
+            title="Refresh and recalculate outstanding balances from Server"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           <button
@@ -777,7 +738,6 @@ const CustomerManagement: React.FC = () => {
               placeholder="Search by name, account, or email..."
               value={searchTerm}
               onChange={handleSearchChange}
-              onKeyPress={handleSearchKeyPress}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
@@ -798,8 +758,8 @@ const CustomerManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <Users className="w-8 h-8 text-blue-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">{pagination?.total || customers.length}</p>
+              <p className="text-sm text-gray-600">Total Filtered</p>
+              <p className="text-2xl font-bold text-gray-900">{pagination?.total || 0}</p>
             </div>
           </div>
         </div>
@@ -947,13 +907,13 @@ const CustomerManagement: React.FC = () => {
               </select>
             </div>
             <div className="text-sm text-gray-600">
-              Showing {(pagination.current_page - 1) * pagination.per_page + 1} to {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of {pagination.total} results
+              Showing {pagination.total === 0 ? 0 : (pagination.current_page - 1) * pagination.per_page + 1} to {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of {pagination.total} results
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handlePageChange(pagination.current_page - 1)}
+              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
               disabled={!pagination.has_prev}
               className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -963,7 +923,6 @@ const CustomerManagement: React.FC = () => {
             {/* Page Numbers */}
             <div className="flex gap-1">
               {Array.from({ length: pagination.total_pages }, (_, i) => i + 1).map((page) => {
-                // Show first page, last page, current page, and pages around current
                 const showPage = 
                   page === 1 || 
                   page === pagination.total_pages || 
@@ -978,7 +937,7 @@ const CustomerManagement: React.FC = () => {
                 return (
                   <button
                     key={page}
-                    onClick={() => handlePageChange(page)}
+                    onClick={() => setCurrentPage(page)}
                     className={`px-3 py-1 rounded-md text-sm border transition-colors ${
                       page === pagination.current_page
                         ? 'bg-blue-600 text-white border-blue-600'
@@ -992,7 +951,7 @@ const CustomerManagement: React.FC = () => {
             </div>
 
             <button
-              onClick={() => handlePageChange(pagination.current_page + 1)}
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, pagination.total_pages))}
               disabled={!pagination.has_next}
               className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
@@ -1015,7 +974,7 @@ const CustomerManagement: React.FC = () => {
       {showAddModal && (
         <AddCustomerModal
           onClose={() => setShowAddModal(false)}
-          onCustomerAdded={() => fetchCustomers(1, '', '')}
+          onCustomerAdded={() => fetchInitialData()}
         />
       )}
 
@@ -1036,7 +995,7 @@ const CustomerManagement: React.FC = () => {
             setShowAdjustModal(false);
             setAdjustCustomer(null);
           }}
-          onSuccess={() => fetchCustomers(currentPage, searchTerm, selectedZone)}
+          onSuccess={() => fetchInitialData()}
         />
       )}
     </div>
