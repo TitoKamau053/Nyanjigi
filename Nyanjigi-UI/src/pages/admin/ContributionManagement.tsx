@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, Calendar, TrendingUp, Plus, Download } from 'lucide-react';
+import { Users, DollarSign, TrendingUp, Plus, Download, AlertCircle } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
+
+// Contribution target amount per customer
+const CONTRIBUTION_TARGET = 20500;
 
 interface Contribution {
   id: number;
@@ -19,6 +22,17 @@ interface Contribution {
   completed_at?: string;
   outstanding_amount: string;
   display_status: string;
+  partial_payments_total?: number; // New: Total of all partial contribution payments
+}
+
+interface Payment {
+  id: number;
+  customer_id: number;
+  amount: string;
+  payment_date: string;
+  status: string;
+  payment_method: string;
+  contribution_amount?: string;
 }
 
 const ContributionManagement: React.FC = () => {
@@ -26,6 +40,7 @@ const ContributionManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [paymentData, setPaymentData] = useState<Map<number, number>>(new Map()); // customer_id -> total paid
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -34,10 +49,13 @@ const ContributionManagement: React.FC = () => {
 
   const fetchContributions = async () => {
     try {
+      setLoading(true);
+      
+      // Fetch contributions
       const response = await adminService.getContributions({ month: selectedMonth });
       const allContributions = response.data?.data?.contributions || [];
 
-      // Filter contributions by selected month as fallback (API should handle this, but adding client-side filtering)
+      // Filter contributions by selected month as fallback
       const filteredContributions = allContributions.filter((contribution: Contribution) => {
         const contributionDate = new Date(contribution.contribution_month);
         const contributionMonth = contributionDate.getFullYear() + '-' +
@@ -45,8 +63,25 @@ const ContributionManagement: React.FC = () => {
         return contributionMonth === selectedMonth;
       });
 
+      // Fetch all payments to calculate partial contributions
+      const paymentsResponse = await adminService.getPayments({ limit: 10000 });
+      const allPayments: Payment[] = paymentsResponse.data?.data?.payments || paymentsResponse.data?.payments || [];
+
+      // Build payment map: customer_id -> total contribution amount paid
+      const paymentMap = new Map<number, number>();
+      allPayments.forEach((payment: Payment) => {
+        // Only count completed payments that are marked as contribution payments
+        if (payment.status === 'completed' && payment.contribution_amount) {
+          const customerId = payment.customer_id;
+          const amount = Number(payment.contribution_amount || 0);
+          paymentMap.set(customerId, (paymentMap.get(customerId) || 0) + amount);
+        }
+      });
+
+      setPaymentData(paymentMap);
       setContributions(filteredContributions);
     } catch (error) {
+      console.error('Error fetching contributions:', error);
       addToast('Failed to fetch contributions', 'error');
     } finally {
       setLoading(false);
@@ -77,21 +112,11 @@ const ContributionManagement: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'paid': return 'bg-green-100 text-green-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'overdue': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const totalAmount = contributions.reduce((sum, contrib) => sum + Number(contrib.amount_required || 0), 0);
-  const paidAmount = contributions.filter(c => c.display_status === 'paid').reduce((sum, contrib) => sum + Number(contrib.amount_paid || 0), 0);
-  const pendingAmount = contributions.filter(c => c.display_status === 'pending').reduce((sum, contrib) => sum + Number(contrib.amount_required || 0), 0);
-  const overdueAmount = contributions.filter(c => c.display_status === 'overdue').reduce((sum, contrib) => sum + Number(contrib.amount_required || 0), 0);
-
-  const collectionRate = contributions.length > 0 ? (contributions.filter(c => c.display_status === 'paid').length / contributions.length * 100) : 0;
+  // Calculate contribution accountability metrics
+  const totalContributionTarget = contributions.length * CONTRIBUTION_TARGET;
+  const totalPartialPaid = Array.from(paymentData.values()).reduce((sum, amount) => sum + amount, 0);
+  const totalContributionRemaining = totalContributionTarget - totalPartialPaid;
+  const contributionCollectionRate = contributions.length > 0 ? (totalPartialPaid / totalContributionTarget) * 100 : 0;
 
   if (loading) {
     return (
@@ -141,8 +166,8 @@ const ContributionManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Expected</p>
-              <p className="text-2xl font-bold text-gray-900">KES {totalAmount.toLocaleString()}</p>
+              <p className="text-sm text-gray-600">Total Target (KES 20,500 each)</p>
+              <p className="text-2xl font-bold text-gray-900">KES {totalContributionTarget.toLocaleString()}</p>
             </div>
           </div>
         </div>
@@ -150,28 +175,28 @@ const ContributionManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <TrendingUp className="w-8 h-8 text-green-600" />
             <div>
-              <p className="text-sm text-gray-600">Collected</p>
-              <p className="text-2xl font-bold text-gray-900">KES {paidAmount.toLocaleString()}</p>
+              <p className="text-sm text-gray-600">Collected (Partial)</p>
+              <p className="text-2xl font-bold text-gray-900">KES {totalPartialPaid.toLocaleString()}</p>
             </div>
           </div>
         </div>
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
           <div className="flex items-center gap-3">
-            <Calendar className="w-8 h-8 text-yellow-600" />
+            <AlertCircle className="w-8 h-8 text-red-600" />
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
-              <p className="text-2xl font-bold text-gray-900">KES {pendingAmount.toLocaleString()}</p>
+              <p className="text-sm text-gray-600">Remaining</p>
+              <p className="text-2xl font-bold text-gray-900">KES {totalContributionRemaining.toLocaleString()}</p>
             </div>
           </div>
         </div>
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-              <span className="text-blue-600 font-bold text-sm">{Math.round(collectionRate)}%</span>
+              <span className="text-blue-600 font-bold text-sm">{Math.round(contributionCollectionRate)}%</span>
             </div>
             <div>
               <p className="text-sm text-gray-600">Collection Rate</p>
-              <p className="text-2xl font-bold text-gray-900">{Math.round(collectionRate)}%</p>
+              <p className="text-2xl font-bold text-gray-900">{Math.round(contributionCollectionRate)}%</p>
             </div>
           </div>
         </div>
@@ -199,19 +224,22 @@ const ContributionManagement: React.FC = () => {
                   Account
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer Type
+                  Type
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
+                  Target Amount
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Due Date
+                  Paid to Date
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Remaining
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Progress
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Paid Date
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
@@ -219,53 +247,92 @@ const ContributionManagement: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {contributions.map((contribution) => (
-                <tr key={contribution.id} className="hover:bg-blue-50/30 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{contribution.customer_name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-mono text-gray-900">{contribution.account_number}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 capitalize">{contribution.customer_type}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">KES {Number(contribution.amount_required || 0).toLocaleString()}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{new Date(contribution.due_date).toLocaleDateString()}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(contribution.display_status)}`}>
-                      {contribution.display_status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">
-                      {contribution.paid_date ? new Date(contribution.paid_date).toLocaleDateString() : '-'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex items-center gap-2">
-                      <button className="text-blue-600 hover:text-blue-900 transition-colors">
-                        View
-                      </button>
-                      {contribution.display_status !== 'paid' && (
-                        <button
-                          onClick={() => markAsPaid(contribution.id)}
-                          className="text-green-600 hover:text-green-900 transition-colors"
-                        >
-                          Mark Paid
+              {contributions.map((contribution) => {
+                // Calculate partial payment for this customer
+                const partialPaid = paymentData.get(contribution.customer_id) || 0;
+                const remaining = CONTRIBUTION_TARGET - partialPaid;
+                const percentagePaid = (partialPaid / CONTRIBUTION_TARGET) * 100;
+                
+                // Determine accountability status
+                let accountabilityStatus = 'pending';
+                let statusColor = 'bg-yellow-100 text-yellow-800';
+                
+                if (partialPaid >= CONTRIBUTION_TARGET) {
+                  accountabilityStatus = 'complete';
+                  statusColor = 'bg-green-100 text-green-800';
+                } else if (partialPaid > 0) {
+                  accountabilityStatus = 'partial';
+                  statusColor = 'bg-blue-100 text-blue-800';
+                }
+
+                return (
+                  <tr key={contribution.id} className="hover:bg-blue-50/30 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{contribution.customer_name}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-mono text-gray-900">{contribution.account_number}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900 capitalize">{contribution.customer_type}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-semibold text-gray-900">KES {CONTRIBUTION_TARGET.toLocaleString()}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className={`text-sm font-semibold ${partialPaid > 0 ? 'text-green-600' : 'text-gray-500'}`}>
+                        KES {partialPaid.toLocaleString()}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className={`text-sm font-semibold ${remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        KES {remaining.toLocaleString()}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all ${
+                              percentagePaid >= 100 ? 'bg-green-500' :
+                              percentagePaid >= 50 ? 'bg-blue-500' :
+                              percentagePaid > 0 ? 'bg-yellow-500' :
+                              'bg-gray-300'
+                            }`}
+                            style={{ width: `${Math.min(percentagePaid, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-medium text-gray-600 w-8">{Math.round(percentagePaid)}%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusColor}`}>
+                        {accountabilityStatus === 'complete' ? '✓ Complete' :
+                         accountabilityStatus === 'partial' ? '◐ Partial' :
+                         '○ Pending'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex items-center gap-2">
+                        <button className="text-blue-600 hover:text-blue-900 transition-colors">
+                          View
                         </button>
-                      )}
-                      <button className="text-indigo-600 hover:text-indigo-900 transition-colors">
-                        Edit
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {accountabilityStatus !== 'complete' && (
+                          <button
+                            onClick={() => markAsPaid(contribution.id)}
+                            className="text-green-600 hover:text-green-900 transition-colors"
+                          >
+                            Mark Paid
+                          </button>
+                        )}
+                        <button className="text-indigo-600 hover:text-indigo-900 transition-colors">
+                          Edit
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

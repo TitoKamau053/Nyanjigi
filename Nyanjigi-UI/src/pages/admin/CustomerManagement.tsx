@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Users, Search, Plus, ToggleLeft, ToggleRight, RefreshCw, Wallet } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
@@ -548,10 +548,20 @@ const CustomerManagement: React.FC = () => {
   const [selectedZone, setSelectedZone] = useState<'Nyakahura' | 'G3' | 'Githunguri' | ''>('');
   const [isSearching, setIsSearching] = useState(false);
   
+  // Debounce ref for search (15 seconds)
+  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
   const { addToast } = useToast();
 
   useEffect(() => {
     fetchCustomers(1);
+    
+    // Cleanup on unmount
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
   }, []);
 
   const fetchCustomers = async (page: number = 1, search: string = '', zone: string = '') => {
@@ -640,6 +650,7 @@ const CustomerManagement: React.FC = () => {
   const handleZoneChange = (zone: string) => {
     setSelectedZone(zone as 'Nyakahura' | 'G3' | 'Githunguri' | '');
     setCurrentPage(1); // Reset to first page on filter change
+    setIsSearching(true); // Trigger immediate fetch for zone filter
   };
 
   // Handle items per page change
@@ -653,13 +664,30 @@ const CustomerManagement: React.FC = () => {
     fetchCustomers(page, searchTerm, selectedZone);
   };
 
-  // Trigger search/filter whenever searchTerm, selectedZone, or itemsPerPage changes
+  // Trigger search/filter with 15-second debounce for search, immediate for zone/items change
   useEffect(() => {
-    if (isSearching) {
-      fetchCustomers(1, searchTerm, selectedZone);
-      setIsSearching(false);
+    // Clear previous timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
     }
-  }, [searchTerm, selectedZone, itemsPerPage]);
+
+    if (isSearching) {
+      // For zone filter changes, fetch immediately
+      // For search term changes, wait 15 seconds (15000ms)
+      const delay = searchTerm.trim() ? 15000 : 0;
+      
+      debounceTimeoutRef.current = setTimeout(() => {
+        fetchCustomers(1, searchTerm, selectedZone);
+        setIsSearching(false);
+      }, delay);
+    }
+
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [searchTerm, selectedZone, itemsPerPage, isSearching]);
 
   const toggleCustomerStatus = async (customerId: number) => {
     try {

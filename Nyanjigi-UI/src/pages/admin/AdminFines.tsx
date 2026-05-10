@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileText, Search } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { adminService } from '../../services/adminService';
@@ -33,9 +33,19 @@ const AdminFines: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isSearching, setIsSearching] = useState(false);
+  
+  // Debounce ref for search (15 seconds)
+  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchFines(1);
+    
+    // Cleanup on unmount
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
   }, []);
 
   const fetchFines = async (page: number = 1, search: string = '', status: string = 'all') => {
@@ -81,9 +91,10 @@ const AdminFines: React.FC = () => {
     setIsSearching(true);
   };
 
-// Handle status filter changes (ONLY updates state now)
+// Handle status filter changes (triggers fetch immediately)
   const handleStatusChange = (status: string) => {
     setStatusFilter(status);
+    setIsSearching(true); // Trigger immediate fetch for status filter
   };
 
   // Handle items per page change
@@ -97,13 +108,30 @@ const AdminFines: React.FC = () => {
     fetchFines(page, searchTerm, statusFilter);
   };
 
-  // Trigger search/filter whenever searchTerm, statusFilter, or itemsPerPage changes
+  // Trigger search/filter with 15-second debounce for search, immediate for status/items change
   useEffect(() => {
-    if (isSearching) {
-      fetchFines(1, searchTerm, statusFilter);
-      setIsSearching(false);
+    // Clear previous timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
     }
-  }, [searchTerm, statusFilter, itemsPerPage]);
+
+    if (isSearching) {
+      // For status filter changes, fetch immediately
+      // For search term changes, wait 15 seconds (15000ms)
+      const delay = searchTerm.trim() ? 15000 : 0;
+      
+      debounceTimeoutRef.current = setTimeout(() => {
+        fetchFines(1, searchTerm, statusFilter);
+        setIsSearching(false);
+      }, delay);
+    }
+
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, [searchTerm, statusFilter, itemsPerPage, isSearching]);
 
   const formatCurrency = (amount: string | number): string => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
