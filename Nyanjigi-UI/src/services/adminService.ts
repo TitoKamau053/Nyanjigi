@@ -326,6 +326,79 @@ export const adminService = {
   markContributionPaid: (id: number) => 
     api.post(`/contributions/${id}/mark-paid`),
 
+  // Mark contribution as partially paid
+  markContributionPartiallyPaid: (id: number, data?: { notes?: string }) =>
+    api.post(`/contributions/${id}/mark-partial`, data || {}),
+
+  // Mark contribution as fully paid
+  markContributionFullyPaid: (id: number, data?: { notes?: string }) =>
+    api.post(`/contributions/${id}/mark-fully-paid`, data || {}),
+
+  // Get contributions pending payment marking
+  getContributionsPendingMarkup: (params?: {
+    page?: number;
+    limit?: number;
+    customer_id?: number;
+    month?: string;
+    zone?: 'Nyakahura' | 'G3' | 'Githunguri';
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.customer_id) query.append('customer_id', params.customer_id.toString());
+    if (params?.month) query.append('month', params.month);
+    if (params?.zone) query.append('zone', params.zone);
+    return api.get(`/contributions/pending-markup?${query.toString()}`);
+  },
+
+  // RECEIPT MANAGEMENT
+  getReceipts: (params?: {
+    page?: number;
+    limit?: number;
+    customer_id?: number;
+    payment_type?: 'bill' | 'contribution' | 'fine' | 'advance';
+    date_from?: string;
+    date_to?: string;
+    search?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.customer_id) query.append('customer_id', params.customer_id.toString());
+    if (params?.payment_type) query.append('payment_type', params.payment_type);
+    if (params?.date_from) query.append('date_from', params.date_from);
+    if (params?.date_to) query.append('date_to', params.date_to);
+    if (params?.search) query.append('search', params.search);
+    return api.get(`/receipts?${query.toString()}`);
+  },
+
+  // Get receipt by ID
+  getReceiptById: (receiptId: number) =>
+    api.get(`/receipts/${receiptId}`),
+
+  // Get customer receipts
+  getCustomerReceipts: (customerId: number, params?: { page?: number; limit?: number }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.limit) query.append('limit', params.limit.toString());
+    return api.get(`/receipts/customer/${customerId}?${query.toString()}`);
+  },
+
+  // Get receipt summary
+  getReceiptSummary: (params?: { date_from?: string; date_to?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.date_from) query.append('date_from', params.date_from);
+    if (params?.date_to) query.append('date_to', params.date_to);
+    return api.get(`/receipts/summary?${query.toString()}`);
+  },
+
+  // Search receipts
+  searchReceipts: (q: string, limit?: number) => {
+    const query = new URLSearchParams({ q });
+    if (limit) query.append('limit', limit.toString());
+    return api.get(`/receipts/search?${query.toString()}`);
+  },
+
 
   // SYSTEM SETTINGS & MAINTENANCE
   getSettings: () => api.get('/settings'),

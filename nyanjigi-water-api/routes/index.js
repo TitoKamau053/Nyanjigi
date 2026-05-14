@@ -8,6 +8,7 @@ const customerRoutes = require('./customers');
 const billRoutes = require('./bills');
 const paymentRoutes = require('./payments');
 const contributionRoutes = require('./contributions');
+const receiptRoutes = require('./receipts');
 const settingsRoutes = require('./settings');
 const finesRoutes = require('./fines');
 const equityRoutes = require('./equity');
@@ -42,6 +43,7 @@ router.get('/', (req, res) => {
       bills: '/api/v1/bills',
       payments: '/api/v1/payments',
       contributions: '/api/v1/contributions',
+      receipts: '/api/v1/receipts',
       settings: '/api/v1/settings'
     },
     features: [
@@ -49,6 +51,7 @@ router.get('/', (req, res) => {
       'Automated Billing',
       'Jenga STK Push Integration',
       'Monthly Contributions',
+      'Receipt Generation',
       'Real-time Analytics',
       'System Configuration'
     ],
@@ -68,6 +71,7 @@ router.use('/bills', billRoutes);
 router.use('/equity', equityRoutes); 
 router.use('/payments', paymentRoutes);
 router.use('/contributions', contributionRoutes);
+router.use('/receipts', receiptRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/fines', finesRoutes);
 

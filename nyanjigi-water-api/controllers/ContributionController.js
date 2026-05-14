@@ -447,6 +447,80 @@ class ContributionController {
       return ApiResponse.error(res, error.message, 500);
     }
   }
+
+  // Mark contribution as partially paid (Admin only)
+  static async markContributionPartiallyPaid(req, res) {
+    try {
+      const { contributionId } = req.params;
+      const { notes } = req.body;
+      const adminId = req.admin?.id;
+
+      if (!adminId) {
+        return ApiResponse.forbidden(res, 'Admin authentication required');
+      }
+
+      const result = await Contribution.markContributionPartiallyPaid(
+        parseInt(contributionId),
+        adminId,
+        notes
+      );
+
+      return ApiResponse.success(res, result, 'Contribution marked as partially paid');
+    } catch (error) {
+      return ApiResponse.error(res, error.message, 500);
+    }
+  }
+
+  // Mark contribution as fully paid (Admin only)
+  static async markContributionFullyPaid(req, res) {
+    try {
+      const { contributionId } = req.params;
+      const { notes } = req.body;
+      const adminId = req.admin?.id;
+
+      if (!adminId) {
+        return ApiResponse.forbidden(res, 'Admin authentication required');
+      }
+
+      const result = await Contribution.markContributionFullyPaid(
+        parseInt(contributionId),
+        adminId,
+        notes
+      );
+
+      return ApiResponse.success(res, result, 'Contribution marked as fully paid');
+    } catch (error) {
+      return ApiResponse.error(res, error.message, 500);
+    }
+  }
+
+  // Get contributions pending payment marking (Admin only)
+  static async getContributionsPendingMarkup(req, res) {
+    try {
+      const {
+        page = 1,
+        limit = 20,
+        customer_id,
+        month,
+        zone
+      } = req.query;
+
+      const filters = {};
+      if (customer_id) filters.customer_id = parseInt(customer_id);
+      if (month) filters.month = month;
+      if (zone) filters.zone = zone;
+
+      const result = await Contribution.getContributionsPendingMarkup(
+        parseInt(page),
+        parseInt(limit),
+        filters
+      );
+
+      return ApiResponse.success(res, result, 'Pending contributions retrieved successfully');
+    } catch (error) {
+      return ApiResponse.error(res, error.message, 500);
+    }
+  }
 }
 
 module.exports = ContributionController;

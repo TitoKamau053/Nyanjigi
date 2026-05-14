@@ -313,6 +313,74 @@ router.get('/me/summary',
 );
 
 /**
+ * @route   POST /api/v1/contributions/:contributionId/mark-partial
+ * @desc    Mark contribution as partially paid by admin
+ * @access  Private (Admin only)
+ */
+router.post('/:contributionId/mark-partial',
+  verifyAdmin,
+  [
+    require('express-validator').param('contributionId')
+      .isInt({ min: 1 })
+      .withMessage('Valid contribution ID is required'),
+    require('express-validator').body('notes')
+      .optional()
+      .isString()
+      .trim()
+      .withMessage('Notes must be a string')
+  ],
+  handleValidationErrors,
+  asyncHandler(ContributionController.markContributionPartiallyPaid)
+);
+
+/**
+ * @route   POST /api/v1/contributions/:contributionId/mark-fully-paid
+ * @desc    Mark contribution as fully paid by admin
+ * @access  Private (Admin only)
+ */
+router.post('/:contributionId/mark-fully-paid',
+  verifyAdmin,
+  [
+    require('express-validator').param('contributionId')
+      .isInt({ min: 1 })
+      .withMessage('Valid contribution ID is required'),
+    require('express-validator').body('notes')
+      .optional()
+      .isString()
+      .trim()
+      .withMessage('Notes must be a string')
+  ],
+  handleValidationErrors,
+  asyncHandler(ContributionController.markContributionFullyPaid)
+);
+
+/**
+ * @route   GET /api/v1/contributions/pending-markup
+ * @desc    Get contributions requiring payment marking
+ * @access  Private (Admin only)
+ */
+router.get('/pending-markup',
+  verifyAdmin,
+  [
+    ...ValidationSchemas.pagination,
+    require('express-validator').query('customer_id')
+      .optional({ values: 'falsy' })
+      .isInt({ min: 1 })
+      .withMessage('Valid customer ID is required'),
+    require('express-validator').query('month')
+      .optional({ values: 'falsy' })
+      .isISO8601()
+      .withMessage('Valid month format required (YYYY-MM-DD)'),
+    require('express-validator').query('zone')
+      .optional({ values: 'falsy' })
+      .isIn(['Nyakahura', 'G3', 'Githunguri'])
+      .withMessage('Valid zone is required')
+  ],
+  handleValidationErrors,
+  asyncHandler(ContributionController.getContributionsPendingMarkup)
+);
+
+/**
  * @route   GET /api/v1/contributions/:contributionId
  * @desc    Get single contribution details
  * @access  Private (Admin only)

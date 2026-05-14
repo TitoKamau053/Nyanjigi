@@ -1,38 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, TrendingUp, Plus, Download, AlertCircle } from 'lucide-react';
+import { 
+  Users, DollarSign, TrendingUp, Plus, Download, AlertCircle, Check, Clock, 
+  ChevronDown, Search, Filter, Edit2
+} from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
-// Contribution target amount per customer
-const CONTRIBUTION_TARGET = 20500;
+const TOTAL_CONTRIBUTION = 20500; // Fixed amount per customer
 
 interface Contribution {
   id: number;
   customer_id: number;
   customer_name: string;
   account_number: string;
-  customer_type: 'normal' | 'institution';
   amount_required: string;
   amount_paid: string;
   contribution_month: string;
-  status: 'pending' | 'paid' | 'overdue';
+  payment_status: 'unpaid' | 'partial' | 'fully_paid';
+  status: 'pending' | 'partial' | 'completed' | 'overdue';
   due_date: string;
-  paid_date?: string;
+  last_payment_date?: string;
   created_at: string;
-  completed_at?: string;
   outstanding_amount: string;
-  display_status: string;
-  partial_payments_total?: number; // New: Total of all partial contribution payments
+  days_overdue?: number;
+  phone?: string;
 }
 
-interface Payment {
-  id: number;
-  customer_id: number;
-  amount: string;
-  payment_date: string;
-  status: string;
-  payment_method: string;
-  contribution_amount?: string;
+interface PaginationInfo {
+  current_page: number;
+  per_page: number;
+  total: number;
+  total_pages: number;
 }
 
 const ContributionManagement: React.FC = () => {
@@ -40,46 +38,43 @@ const ContributionManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showGenerateModal, setShowGenerateModal] = useState(false);
-  const [paymentData, setPaymentData] = useState<Map<number, number>>(new Map()); // customer_id -> total paid
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedContribution, setSelectedContribution] = useState<Contribution | null>(null);
+  const [markingAs, setMarkingAs] = useState<'partial' | 'fully_paid' | null>(null);
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterZone, setFilterZone] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const { addToast } = useToast();
 
   useEffect(() => {
     fetchContributions();
-  }, [selectedMonth]);
+  }, [selectedMonth, currentPage, searchTerm, filterZone]);
 
   const fetchContributions = async () => {
     try {
       setLoading(true);
       
-      // Fetch contributions
-      const response = await adminService.getContributions({ month: selectedMonth });
+      const response = await adminService.getContributions({ 
+        page: currentPage,
+        limit: 10,
+        month: selectedMonth 
+      });
+
       const allContributions = response.data?.data?.contributions || [];
+      setPagination(response.data?.data?.pagination);
 
-      // Filter contributions by selected month as fallback
-      const filteredContributions = allContributions.filter((contribution: Contribution) => {
-        const contributionDate = new Date(contribution.contribution_month);
-        const contributionMonth = contributionDate.getFullYear() + '-' +
-          String(contributionDate.getMonth() + 1).padStart(2, '0');
-        return contributionMonth === selectedMonth;
-      });
+      // Filter by search term if provided
+      let filtered = allContributions;
+      if (searchTerm) {
+        filtered = allContributions.filter((c: Contribution) =>
+          c.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          c.account_number.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      }
 
-      // Fetch all payments to calculate partial contributions
-      const paymentsResponse = await adminService.getPayments({ limit: 10000 });
-      const allPayments: Payment[] = paymentsResponse.data?.data?.payments || paymentsResponse.data?.payments || [];
-
-      // Build payment map: customer_id -> total contribution amount paid
-      const paymentMap = new Map<number, number>();
-      allPayments.forEach((payment: Payment) => {
-        // Only count completed payments that are marked as contribution payments
-        if (payment.status === 'completed' && payment.contribution_amount) {
-          const customerId = payment.customer_id;
-          const amount = Number(payment.contribution_amount || 0);
-          paymentMap.set(customerId, (paymentMap.get(customerId) || 0) + amount);
-        }
-      });
-
-      setPaymentData(paymentMap);
-      setContributions(filteredContributions);
+      setContributions(filtered);
     } catch (error) {
       console.error('Error fetching contributions:', error);
       addToast('Failed to fetch contributions', 'error');
@@ -102,23 +97,72 @@ const ContributionManagement: React.FC = () => {
     }
   };
 
-  const markAsPaid = async (contributionId: number) => {
+  const markContributionPayment = async () => {
+    if (!selectedContribution) return;
+
     try {
-      await adminService.markContributionPaid(contributionId);
+      setLoading(true);
+      if (markingAs === 'partial') {
+        await adminService.markContributionPartiallyPaid(selectedContribution.id, {
+          notes: paymentNotes
+        });
+        addToast('Contribution marked as partially paid', 'success');
+      } else if (markingAs === 'fully_paid') {
+        await adminService.markContributionFullyPaid(selectedContribution.id, {
+          notes: paymentNotes
+        });
+        addToast('Contribution marked as fully paid', 'success');
+      }
+
+      setShowPaymentModal(false);
+      setPaymentNotes('');
+      setSelectedContribution(null);
+      setMarkingAs(null);
       await fetchContributions();
-      addToast('Contribution marked as paid', 'success');
     } catch (error) {
-      addToast('Failed to mark contribution as paid', 'error');
+      addToast('Failed to update contribution status', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Calculate contribution accountability metrics
-  const totalContributionTarget = contributions.length * CONTRIBUTION_TARGET;
-  const totalPartialPaid = Array.from(paymentData.values()).reduce((sum, amount) => sum + amount, 0);
-  const totalContributionRemaining = totalContributionTarget - totalPartialPaid;
-  const contributionCollectionRate = contributions.length > 0 ? (totalPartialPaid / totalContributionTarget) * 100 : 0;
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'unpaid':
+        return <span className="px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">Unpaid</span>;
+      case 'partial':
+        return <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">Partially Paid</span>;
+      case 'fully_paid':
+        return <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">Fully Paid</span>;
+      default:
+        return <span className="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Unknown</span>;
+    }
+  };
 
-  if (loading) {
+  const getOverdueIndicator = (daysOverdue?: number) => {
+    if (!daysOverdue || daysOverdue <= 0) return null;
+    return (
+      <div className="flex items-center gap-1 text-red-600 text-xs">
+        <AlertCircle className="w-3 h-3" />
+        {daysOverdue} days overdue
+      </div>
+    );
+  };
+
+  // Calculate statistics
+  const stats = {
+    total: contributions.length,
+    fully_paid: contributions.filter(c => c.payment_status === 'fully_paid').length,
+    partially_paid: contributions.filter(c => c.payment_status === 'partial').length,
+    unpaid: contributions.filter(c => c.payment_status === 'unpaid').length,
+    total_expected: contributions.length * TOTAL_CONTRIBUTION,
+    total_collected: contributions.reduce((sum, c) => sum + parseFloat(c.amount_paid), 0),
+    total_outstanding: contributions.reduce((sum, c) => sum + parseFloat(c.outstanding_amount), 0)
+  };
+
+  const collectionRate = stats.total > 0 ? ((stats.total_collected / stats.total_expected) * 100).toFixed(1) : 0;
+
+  if (loading && contributions.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -132,13 +176,16 @@ const ContributionManagement: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Contribution Management</h1>
-          <p className="text-gray-600 mt-1">Manage monthly customer contributions</p>
+          <p className="text-gray-600 mt-1">Manage customer contributions (Fixed: KSh {TOTAL_CONTRIBUTION.toLocaleString()})</p>
         </div>
         <div className="flex items-center gap-4">
           <input
             type="month"
             value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
+            onChange={(e) => {
+              setSelectedMonth(e.target.value);
+              setCurrentPage(1);
+            }}
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <button
@@ -151,223 +198,295 @@ const ContributionManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
-          <div className="flex items-center gap-3">
-            <Users className="w-8 h-8 text-blue-600" />
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Contributors</p>
-              <p className="text-2xl font-bold text-gray-900">{contributions.length}</p>
+              <p className="text-gray-600 text-sm">Total Expected</p>
+              <p className="text-2xl font-bold text-gray-900">
+                KSh {stats.total_expected.toLocaleString()}
+              </p>
             </div>
+            <DollarSign className="w-8 h-8 text-blue-500 opacity-20" />
           </div>
         </div>
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
-          <div className="flex items-center gap-3">
-            <DollarSign className="w-8 h-8 text-green-600" />
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Target (KES 20,500 each)</p>
-              <p className="text-2xl font-bold text-gray-900">KES {totalContributionTarget.toLocaleString()}</p>
+              <p className="text-gray-600 text-sm">Total Collected</p>
+              <p className="text-2xl font-bold text-green-600">
+                KSh {stats.total_collected.toLocaleString()}
+              </p>
             </div>
+            <Check className="w-8 h-8 text-green-500 opacity-20" />
           </div>
         </div>
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
-          <div className="flex items-center gap-3">
-            <TrendingUp className="w-8 h-8 text-green-600" />
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Collected (Partial)</p>
-              <p className="text-2xl font-bold text-gray-900">KES {totalPartialPaid.toLocaleString()}</p>
+              <p className="text-gray-600 text-sm">Outstanding</p>
+              <p className="text-2xl font-bold text-red-600">
+                KSh {stats.total_outstanding.toLocaleString()}
+              </p>
             </div>
+            <AlertCircle className="w-8 h-8 text-red-500 opacity-20" />
           </div>
         </div>
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
-          <div className="flex items-center gap-3">
-            <AlertCircle className="w-8 h-8 text-red-600" />
+
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Remaining</p>
-              <p className="text-2xl font-bold text-gray-900">KES {totalContributionRemaining.toLocaleString()}</p>
+              <p className="text-gray-600 text-sm">Collection Rate</p>
+              <p className="text-2xl font-bold text-purple-600">
+                {collectionRate}%
+              </p>
             </div>
+            <TrendingUp className="w-8 h-8 text-purple-500 opacity-20" />
           </div>
         </div>
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-              <span className="text-blue-600 font-bold text-sm">{Math.round(contributionCollectionRate)}%</span>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Collection Rate</p>
-              <p className="text-2xl font-bold text-gray-900">{Math.round(contributionCollectionRate)}%</p>
-            </div>
+      </div>
+
+      {/* Filters and Search */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex gap-4 items-center">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by customer name or account number..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Status Summary */}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex gap-6">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            <span className="text-sm text-gray-600">Fully Paid: <span className="font-semibold">{stats.fully_paid}</span></span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+            <span className="text-sm text-gray-600">Partially Paid: <span className="font-semibold">{stats.partially_paid}</span></span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500"></div>
+            <span className="text-sm text-gray-600">Unpaid: <span className="font-semibold">{stats.unpaid}</span></span>
           </div>
         </div>
       </div>
 
       {/* Contributions Table */}
-      <div className="bg-white/20 backdrop-blur-sm rounded-lg border border-white/30 overflow-hidden">
-        <div className="px-6 py-4 border-b border-white/30 flex justify-between items-center">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Contributions for {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-          </h3>
-          <button className="text-blue-600 hover:text-blue-800 flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-blue-50/50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Account
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Target Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Paid to Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Remaining
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Progress
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Customer</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Account</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">Target Amount</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">Amount Paid</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">Balance</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {contributions.map((contribution) => (
+              <tr key={contribution.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div>
+                    <p className="font-medium text-gray-900">{contribution.customer_name}</p>
+                    <p className="text-xs text-gray-500">{contribution.phone}</p>
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                  {contribution.account_number}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right">
+                  <p className="text-sm font-medium text-gray-900">
+                    KSh {TOTAL_CONTRIBUTION.toLocaleString()}
+                  </p>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right">
+                  <p className="text-sm font-medium text-green-600">
+                    KSh {parseFloat(contribution.amount_paid).toLocaleString()}
+                  </p>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-right">
+                  <p className="text-sm font-medium text-red-600">
+                    KSh {parseFloat(contribution.outstanding_amount).toLocaleString()}
+                  </p>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex flex-col gap-1">
+                    {getStatusBadge(contribution.payment_status)}
+                    {getOverdueIndicator(contribution.days_overdue)}
+                  </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <button
+                    onClick={() => {
+                      setSelectedContribution(contribution);
+                      setShowPaymentModal(true);
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    Mark Payment
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {contributions.map((contribution) => {
-                // Calculate partial payment for this customer
-                const partialPaid = paymentData.get(contribution.customer_id) || 0;
-                const remaining = CONTRIBUTION_TARGET - partialPaid;
-                const percentagePaid = (partialPaid / CONTRIBUTION_TARGET) * 100;
-                
-                // Determine accountability status
-                let accountabilityStatus = 'pending';
-                let statusColor = 'bg-yellow-100 text-yellow-800';
-                
-                if (partialPaid >= CONTRIBUTION_TARGET) {
-                  accountabilityStatus = 'complete';
-                  statusColor = 'bg-green-100 text-green-800';
-                } else if (partialPaid > 0) {
-                  accountabilityStatus = 'partial';
-                  statusColor = 'bg-blue-100 text-blue-800';
-                }
+            ))}
+          </tbody>
+        </table>
 
-                return (
-                  <tr key={contribution.id} className="hover:bg-blue-50/30 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{contribution.customer_name}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-mono text-gray-900">{contribution.account_number}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 capitalize">{contribution.customer_type}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-semibold text-gray-900">KES {CONTRIBUTION_TARGET.toLocaleString()}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`text-sm font-semibold ${partialPaid > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                        KES {partialPaid.toLocaleString()}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`text-sm font-semibold ${remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        KES {remaining.toLocaleString()}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full transition-all ${
-                              percentagePaid >= 100 ? 'bg-green-500' :
-                              percentagePaid >= 50 ? 'bg-blue-500' :
-                              percentagePaid > 0 ? 'bg-yellow-500' :
-                              'bg-gray-300'
-                            }`}
-                            style={{ width: `${Math.min(percentagePaid, 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-medium text-gray-600 w-8">{Math.round(percentagePaid)}%</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusColor}`}>
-                        {accountabilityStatus === 'complete' ? '✓ Complete' :
-                         accountabilityStatus === 'partial' ? '◐ Partial' :
-                         '○ Pending'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center gap-2">
-                        <button className="text-blue-600 hover:text-blue-900 transition-colors">
-                          View
-                        </button>
-                        {accountabilityStatus !== 'complete' && (
-                          <button
-                            onClick={() => markAsPaid(contribution.id)}
-                            className="text-green-600 hover:text-green-900 transition-colors"
-                          >
-                            Mark Paid
-                          </button>
-                        )}
-                        <button className="text-indigo-600 hover:text-indigo-900 transition-colors">
-                          Edit
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {contributions.length === 0 && (
+          <div className="p-8 text-center">
+            <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+            <p className="text-gray-600">No contributions found for the selected period</p>
+          </div>
+        )}
       </div>
 
-      {contributions.length === 0 && (
-        <div className="text-center py-12">
-          <Users className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No contributions found</h3>
-          <p className="mt-1 text-sm text-gray-500">
-            Generate contributions for this month to get started.
-          </p>
+      {/* Pagination */}
+      {pagination && pagination.total_pages > 1 && (
+        <div className="flex justify-center items-center gap-2">
+          <button
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="px-3 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+          >
+            Previous
+          </button>
+          <span className="text-sm text-gray-600">
+            Page {currentPage} of {pagination.total_pages}
+          </span>
+          <button
+            onClick={() => setCurrentPage(Math.min(pagination.total_pages, currentPage + 1))}
+            disabled={currentPage === pagination.total_pages}
+            className="px-3 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+          >
+            Next
+          </button>
         </div>
       )}
 
-      {/* Generate Contributions Modal */}
+      {/* Generate Modal */}
       {showGenerateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Generate Contributions</h3>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 rounded-lg">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Generate Contributions</h2>
             <p className="text-gray-600 mb-6">
-              Generate contributions for {new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}?
+              This will generate contributions of KSh {TOTAL_CONTRIBUTION.toLocaleString()} for all active customers for {selectedMonth}.
             </p>
-            <div className="flex justify-end gap-3">
+            <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowGenerateModal(false)}
-                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={generateContributions}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                Generate
+                {loading ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && selectedContribution && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 rounded-lg">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Mark Contribution Payment</h2>
+            
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Customer:</span>
+                  <span className="font-medium">{selectedContribution.customer_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Account:</span>
+                  <span className="font-medium">{selectedContribution.account_number}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Target Amount:</span>
+                  <span className="font-medium">KSh {TOTAL_CONTRIBUTION.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2">
+                  <span className="text-sm text-gray-600">Amount Paid:</span>
+                  <span className="font-medium text-green-600">KSh {parseFloat(selectedContribution.amount_paid).toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              <button
+                onClick={() => setMarkingAs('partial')}
+                className={`w-full p-3 border-2 rounded-lg transition-colors ${
+                  markingAs === 'partial'
+                    ? 'border-yellow-500 bg-yellow-50'
+                    : 'border-gray-200 hover:border-yellow-300'
+                }`}
+              >
+                <p className="font-medium text-gray-900">Mark as Partially Paid</p>
+                <p className="text-xs text-gray-600">Customer has made partial payment</p>
+              </button>
+
+              <button
+                onClick={() => setMarkingAs('fully_paid')}
+                className={`w-full p-3 border-2 rounded-lg transition-colors ${
+                  markingAs === 'fully_paid'
+                    ? 'border-green-500 bg-green-50'
+                    : 'border-gray-200 hover:border-green-300'
+                }`}
+              >
+                <p className="font-medium text-gray-900">Mark as Fully Paid</p>
+                <p className="text-xs text-gray-600">Customer has paid full contribution</p>
+              </button>
+            </div>
+
+            <textarea
+              placeholder="Add notes (optional)"
+              value={paymentNotes}
+              onChange={(e) => setPaymentNotes(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4 resize-none"
+              rows={3}
+            />
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setPaymentNotes('');
+                  setSelectedContribution(null);
+                  setMarkingAs(null);
+                }}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={markContributionPayment}
+                disabled={loading || !markingAs}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? 'Updating...' : 'Confirm'}
               </button>
             </div>
           </div>

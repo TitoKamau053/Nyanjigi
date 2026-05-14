@@ -508,6 +508,141 @@ class Contribution extends BaseModel {
       throw error;
     }
   }
+
+  /**
+   * Mark contribution as partially paid by admin
+   */
+  async markContributionPartiallyPaid(contributionId, adminId, notes = null) {
+    try {
+      const contribution = await this.findById(contributionId);
+      if (!contribution) {
+        throw new Error('Contribution not found');
+      }
+
+      const updateData = {
+        payment_status: 'partial',
+        last_payment_date: new Date(),
+        marked_partial_by: adminId,
+        partial_payment_notes: notes
+      };
+
+      await this.update(contributionId, updateData);
+
+      return {
+        contribution_id: contributionId,
+        payment_status: 'partial',
+        marked_at: new Date(),
+        marked_by: adminId,
+        notes
+      };
+    } catch (error) {
+      console.error('Error marking contribution as partially paid:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mark contribution as fully paid by admin
+   */
+  async markContributionFullyPaid(contributionId, adminId, notes = null) {
+    try {
+      const contribution = await this.findById(contributionId);
+      if (!contribution) {
+        throw new Error('Contribution not found');
+      }
+
+      const updateData = {
+        payment_status: 'fully_paid',
+        status: 'completed',
+        last_payment_date: new Date(),
+        marked_fully_paid_by: adminId,
+        partial_payment_notes: notes,
+        completed_at: new Date()
+      };
+
+      await this.update(contributionId, updateData);
+
+      return {
+        contribution_id: contributionId,
+        payment_status: 'fully_paid',
+        status: 'completed',
+        marked_at: new Date(),
+        marked_by: adminId,
+        notes
+      };
+    } catch (error) {
+      console.error('Error marking contribution as fully paid:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get contributions requiring payment marking (pending/partial)
+   */
+  async getContributionsPendingMarkup(page = 1, limit = 20, filters = {}) {
+    try {
+      const offset = (page - 1) * limit;
+      const conditions = ["cont.payment_status IN ('unpaid', 'partial')"];
+      const params = [];
+
+      if (filters.customer_id) {
+        conditions.push('cont.customer_id = ?');
+        params.push(filters.customer_id);
+      }
+
+      if (filters.month) {
+        const month = moment(filters.month);
+        conditions.push('YEAR(cont.contribution_month) = ? AND MONTH(cont.contribution_month) = ?');
+        params.push(month.year(), month.month() + 1);
+      }
+
+      if (filters.zone) {
+        conditions.push('c.zone = ?');
+        params.push(filters.zone);
+      }
+
+      const whereClause = conditions.join(' AND ');
+
+      const query = `
+        SELECT
+          cont.*,
+          c.account_number,
+          c.full_name as customer_name,
+          c.phone as customer_phone,
+          c.zone,
+          DATEDIFF(CURDATE(), cont.due_date) as days_overdue
+        FROM contributions cont
+        INNER JOIN customers c ON cont.customer_id = c.id
+        WHERE ${whereClause}
+        ORDER BY cont.contribution_month DESC, c.full_name ASC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+
+      const contributions = await executeQuery(query, params);
+
+      // Get total count
+      const countQuery = `
+        SELECT COUNT(*) as total FROM contributions cont
+        INNER JOIN customers c ON cont.customer_id = c.id
+        WHERE ${whereClause}
+      `;
+      const countResult = await executeQuery(countQuery, params);
+      const total = countResult[0].total;
+
+      return {
+        contributions,
+        pagination: {
+          current_page: page,
+          per_page: limit,
+          total,
+          total_pages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      console.error('Error getting contributions pending markup:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new Contribution();

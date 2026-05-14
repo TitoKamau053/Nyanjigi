@@ -10,6 +10,7 @@ const Payment = require('./Payment');
 const Contribution = require('./Contribution');
 const SystemSettings = require('./SystemSettings');
 const Fine = require ('./Fine')
+const Receipt = require('./Receipt');
 
 module.exports = {
   BaseModel,
@@ -19,5 +20,6 @@ module.exports = {
   Payment,
   Contribution,
   SystemSettings,
-  Fine
+  Fine,
+  Receipt
 };
