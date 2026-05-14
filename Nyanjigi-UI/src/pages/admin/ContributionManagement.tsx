@@ -6,7 +6,7 @@ import {
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
-const TOTAL_CONTRIBUTION = 20500; // Fixed amount per customer
+const TOTAL_CONTRIBUTION = 20500; 
 
 interface Contribution {
   id: number;
@@ -176,7 +176,6 @@ const ContributionManagement: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Contribution Management</h1>
-          <p className="text-gray-600 mt-1">Manage customer contributions (Fixed: KSh {TOTAL_CONTRIBUTION.toLocaleString()})</p>
         </div>
         <div className="flex items-center gap-4">
           <input
