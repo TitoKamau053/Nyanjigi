@@ -83,12 +83,23 @@ const AdminFines: React.FC = () => {
 // Handle search term changes (ONLY updates state now)
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
+    setCurrentPage(1); // Reset to first page on search
+    setIsSearching(true);
   };
 
-  // Trigger search ONLY when button is clicked
-  const handleSearchSubmit = () => {
-    setCurrentPage(1);
-    setIsSearching(true);
+  // Handle Enter key press to trigger search immediately
+  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      // Clear any pending debounce timeout
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+      // Fetch immediately
+      setCurrentPage(1);
+      fetchFines(1, searchTerm, statusFilter);
+      setIsSearching(false);
+    }
   };
 
 // Handle status filter changes (triggers fetch immediately)
@@ -108,7 +119,7 @@ const AdminFines: React.FC = () => {
     fetchFines(page, searchTerm, statusFilter);
   };
 
-  // Trigger search/filter with 15-second debounce for search, immediate for status/items change
+  // Trigger search/filter with 5-second debounce for search, immediate for status/items change
   useEffect(() => {
     // Clear previous timeout
     if (debounceTimeoutRef.current) {
@@ -117,8 +128,8 @@ const AdminFines: React.FC = () => {
 
     if (isSearching) {
       // For status filter changes, fetch immediately
-      // For search term changes, wait 15 seconds (15000ms)
-      const delay = searchTerm.trim() ? 15000 : 0;
+      // For search term changes, wait 5 seconds (5000ms)
+      const delay = searchTerm.trim() ? 5000 : 0;
       
       debounceTimeoutRef.current = setTimeout(() => {
         fetchFines(1, searchTerm, statusFilter);
@@ -166,7 +177,7 @@ const AdminFines: React.FC = () => {
               placeholder="Search by customer name or account..."
               value={searchTerm}
               onChange={handleSearchChange}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearchSubmit()}
+              onKeyPress={handleSearchKeyPress}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
@@ -187,7 +198,14 @@ const AdminFines: React.FC = () => {
 
         <div>
           <button
-            onClick={handleSearchSubmit}
+            onClick={() => {
+              if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+              }
+              setCurrentPage(1);
+              fetchFines(1, searchTerm, statusFilter);
+              setIsSearching(false);
+            }}
             className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
           >
             Search

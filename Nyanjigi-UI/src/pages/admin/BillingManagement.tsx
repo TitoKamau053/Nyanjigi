@@ -387,6 +387,7 @@ const handleExport = async () => {
               placeholder="Search by customer name or account..."
               value={searchTerm}
               onChange={handleSearchChange}
+              onKeyPress={handleSearchKeyPress}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
