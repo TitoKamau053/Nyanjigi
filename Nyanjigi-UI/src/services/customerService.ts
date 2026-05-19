@@ -99,6 +99,29 @@ export const customerService = {
   getContributionById: (id: number) => 
     api.get(`/customers/me/contributions/${id}`),
 
+  // Receipts Management
+  getMyReceipts: (params?: {
+    page?: number;
+    limit?: number;
+    payment_type?: 'bill' | 'contribution' | 'fine' | 'advance';
+    date_from?: string;
+    date_to?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.payment_type) query.append('payment_type', params.payment_type);
+    if (params?.date_from) query.append('date_from', params.date_from);
+    if (params?.date_to) query.append('date_to', params.date_to);
+    return api.get(`/receipts/me/receipts?${query.toString()}`);
+  },
+
+  getReceiptById: (receiptId: number) =>
+    api.get(`/receipts/${receiptId}`),
+
+  getMyReceiptSummary: () =>
+    api.get(`/receipts/me/summary`),
+
   // Fines Management
   getFines: (params?: { 
     page?: number; 

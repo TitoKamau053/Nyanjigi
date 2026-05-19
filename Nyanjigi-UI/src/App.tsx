@@ -17,6 +17,7 @@ import CustomerBills from './pages/customer/CustomerBills';
 import CustomerPayments from './pages/customer/CustomerPayments';
 import CustomerProfile from './pages/customer/CustomerProfile';
 import CustomerContributions from './pages/customer/CustomerContributions';
+import CustomerReceipts from './pages/customer/CustomerReceipts';
 import CustomerFines from './pages/customer/CustomerFines';
 import AdminFines from './pages/admin/AdminFines';
 // import MeterReadings from './pages/admin/MeterReadings';
@@ -63,6 +64,7 @@ function App() {
                 <Route path="payments" element={<CustomerPayments />} />
                 <Route path="profile" element={<CustomerProfile />} />
                 <Route path="contributions" element={<CustomerContributions />} />
+                <Route path="receipts" element={<CustomerReceipts />} />
                 <Route path="fines" element={<CustomerFines />} />
               </Route>
 

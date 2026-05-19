@@ -44,6 +44,7 @@ const CustomerLayout: React.FC = () => {
     { icon: FileText, label: 'Bills', path: '/customer/bills' },
     { icon: CreditCard, label: 'Payments', path: '/customer/payments' },
     { icon: FileText, label: 'Contributions', path: '/customer/contributions' },
+    { icon: FileText, label: 'Receipts', path: '/customer/receipts' },
     { icon: AlertCircle, label: 'Fines', path: '/customer/fines' },
     { icon: User, label: 'Profile', path: '/customer/profile' },
   ];

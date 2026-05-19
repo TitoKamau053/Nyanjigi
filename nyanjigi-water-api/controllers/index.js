@@ -12,6 +12,7 @@ const EquityController = require('./EquityController');
 const MeterReadingController = require('./MeterReadingController');
 const ReceiptController = require('./ReceiptController');
 const FineController = require('./FineController');
+const NotificationController = require('./NotificationController');
 
 module.exports = {
   AdminController,
@@ -23,5 +24,6 @@ module.exports = {
   EquityController,
   MeterReadingController,
   ReceiptController,
-  FineController
+  FineController,
+  NotificationController
 };

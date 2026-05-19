@@ -9,6 +9,7 @@ const billRoutes = require('./bills');
 const paymentRoutes = require('./payments');
 const contributionRoutes = require('./contributions');
 const receiptRoutes = require('./receipts');
+const notificationRoutes = require('./notifications');
 const settingsRoutes = require('./settings');
 const finesRoutes = require('./fines');
 const equityRoutes = require('./equity');
@@ -72,6 +73,7 @@ router.use('/equity', equityRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/contributions', contributionRoutes);
 router.use('/receipts', receiptRoutes);
+router.use('/notifications', notificationRoutes);
 router.use('/settings', settingsRoutes);
 router.use('/fines', finesRoutes);
 

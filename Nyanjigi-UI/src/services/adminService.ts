@@ -400,6 +400,38 @@ export const adminService = {
   },
 
 
+  // NOTIFICATIONS
+  sendNotifications: (data: {
+    notification_type: 'bill' | 'contribution';
+    message: string;
+    customer_ids?: number[];
+    send_to_all?: boolean;
+  }) => api.post('/notifications/send', data),
+
+  getNotificationHistory: (params?: {
+    page?: number;
+    limit?: number;
+    notification_type?: 'bill' | 'contribution';
+    start_date?: string;
+    end_date?: string;
+  }) => {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.notification_type) query.append('notification_type', params.notification_type);
+    if (params?.start_date) query.append('start_date', params.start_date);
+    if (params?.end_date) query.append('end_date', params.end_date);
+    return api.get(`/notifications/history?${query.toString()}`);
+  },
+
+  getCustomersForNotification: (params?: { search?: string; zone?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.search) query.append('search', params.search);
+    if (params?.zone) query.append('zone', params.zone);
+    return api.get(`/notifications/customers?${query.toString()}`);
+  },
+
+
   // SYSTEM SETTINGS & MAINTENANCE
   getSettings: () => api.get('/settings'),
   
