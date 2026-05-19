@@ -241,12 +241,20 @@ class NotificationController {
       const { executeQuery } = require('../config/database');
       const customers = await executeQuery(query, params);
 
-      return res.status(200).json(ApiResponse.success('Customers retrieved', {
-        customers: customers || []
-      }));
+      return res.status(200).json({
+        success: true,
+        message: 'Customers retrieved',
+        data: {
+          customers: customers || []
+        }
+      });
     } catch (error) {
       console.error('Error in getCustomersForNotification:', error);
-      return res.status(500).json(ApiResponse.error('Failed to fetch customers', error.message));
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch customers',
+        error: error.message
+      });
     }
   }
 }
