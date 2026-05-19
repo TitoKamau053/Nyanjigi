@@ -42,17 +42,17 @@ class NotificationController {
       if (send_to_all) {
         // Get all active customers
         customers = await Customer.findAll({
-          where: { status: 'active' },
-          attributes: ['id', 'full_name', 'phone', 'account_number']
+          where: { is_active: 1 },
+          attributes: ['id', 'full_name', 'phone', 'account_number', 'zone']
         });
       } else {
         // Get specific customers
         customers = await Customer.findAll({
           where: { 
             id: customer_ids,
-            status: 'active' 
+            is_active: 1
           },
-          attributes: ['id', 'full_name', 'phone', 'account_number']
+          attributes: ['id', 'full_name', 'phone', 'account_number', 'zone']
         });
       }
 
@@ -222,8 +222,8 @@ class NotificationController {
     try {
       const { search = '', zone } = req.query;
 
-      let query = 'SELECT id, full_name, account_number, phone, zone FROM customers WHERE status = ?';
-      const params = ['active'];
+      let query = 'SELECT id, full_name, account_number, phone, zone FROM customers WHERE is_active = 1';
+      const params = [];
 
       if (search) {
         query += ' AND (full_name LIKE ? OR account_number LIKE ? OR phone LIKE ?)';
