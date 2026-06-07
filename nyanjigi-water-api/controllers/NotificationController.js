@@ -77,7 +77,7 @@ class NotificationController {
       };
 
     const notificationService = NotificationService;
-    
+
       for (const customer of customers) {
         try {
           // Personalize message with customer variables
@@ -346,7 +346,7 @@ class NotificationController {
         pagination
       }, 'Customers retrieved', 200);
     } catch (error) {
-      console.error('❌ ERROR in getCustomersForNotification:', error);
+      console.error('ERROR in getCustomersForNotification:', error);
       return ApiResponse.error(res, 'Failed to fetch customers', 500, error.message);
     }
   }
@@ -358,12 +358,14 @@ class NotificationController {
 async function logNotificationBatch(data) {
   const { executeQuery } = require('../config/database');
   
+  // We changed the last parameter from ? to NOW()
   const query = `
     INSERT INTO notification_logs 
     (admin_id, notification_type, total_recipients, successful, failed, message_preview, send_to_all, customer_ids, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW()) 
   `;
 
+  // We removed the new Date().toISOString() from this array since NOW() handles it
   const params = [
     data.admin_id,
     data.notification_type,
@@ -372,8 +374,7 @@ async function logNotificationBatch(data) {
     data.failed,
     data.message_preview,
     data.send_to_all ? 1 : 0,
-    data.customer_ids,
-    new Date().toISOString()
+    data.customer_ids
   ];
 
   await executeQuery(query, params);
