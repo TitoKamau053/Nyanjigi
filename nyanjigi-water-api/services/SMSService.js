@@ -2,34 +2,25 @@ const AfricasTalking = require('africastalking');
 const { SystemSettings } = require('../models');
 
 class SMSService {
-constructor() {
+  constructor() {
     this.apiKey = process.env.AT_API_KEY;
     this.username = process.env.AT_USERNAME;
-    this.senderId = process.env.AT_SENDER_ID || 'NYANJIGIWTR'; // Sender ID for Safaricom
-    
+    this.senderId = process.env.AT_SENDER_ID || 'NYANJIGIWTR';
     this.sandbox = process.env.AT_ENV === 'sandbox';
-    
     this.at = null;
     this.sms = null;
-    
-    console.log('SMS Service Configuration:');
-    console.log('AT_USERNAME:', this.username);
-    console.log('AT_ENV:', process.env.AT_ENV);
-    console.log('AT_SENDER_ID:', this.senderId);
-    console.log('Sandbox mode:', this.sandbox);
   }
 
   // Initialize service with current settings
   async initialize() {
     try {
       const settings = await SystemSettings.getNotificationSettings();
-      // Use environment sender ID or fallback to NYANJIGIWTR for Safaricom
       if (!this.senderId) {
         this.senderId = process.env.AT_SENDER_ID || 'NYANJIGIWTR';
       }
       
       if (!this.apiKey || !this.username) {
-        console.warn("SMS Service: Africa's Talking credentials not configured");
+        console.warn('SMS service: Africa\'s Talking credentials not configured');
         return false;
       }
       
@@ -43,7 +34,7 @@ constructor() {
       }
       return true;
     } catch (error) {
-      console.error('SMS Service initialization failed:', error.message);
+      console.error('SMS service initialization failed:', error.message);
       return false;
     }
   }
@@ -51,11 +42,6 @@ constructor() {
   // Send single SMS using Africa's Talking SDK
   async sendSMS(phoneNumber, message, options = {}) {
     try {
-      console.log('Starting SMS send process...');
-      console.log('Phone:', phoneNumber);
-      console.log('Message:', message);
-      console.log('Options:', options);
-      
       const initialized = await this.initialize();
       if (!initialized) {
         console.error('SMS service initialization failed');
@@ -65,11 +51,6 @@ constructor() {
           message_id: null
         };
       }
-      
-      console.log('SMS service initialized successfully');
-      console.log('API Key present:', !!this.apiKey);
-      console.log('Username:', this.username);
-      console.log('Sender ID:', this.senderId);
       
       if (!phoneNumber || typeof phoneNumber !== 'string') {
         return {
@@ -84,7 +65,7 @@ constructor() {
       try {
         formattedPhone = this.formatPhoneNumber(phoneNumber);
       } catch (validationError) {
-        console.warn('SMS skipped due to phone validation:', {
+        console.warn('Phone validation failed:', {
           phone: phoneNumber,
           reason: validationError.message
         });
@@ -95,27 +76,21 @@ constructor() {
           phone: phoneNumber
         };
       }
-      console.log('Formatted phone:', formattedPhone);
       
       const sendOptions = {
         to: [formattedPhone],
         message: message
       };
       
-      // Apply sender ID for Safaricom numbers or custom sender ID if provided
       const senderIdToUse = options.senderId || (this.isSafaricomNumber(formattedPhone) ? this.senderId : null);
       if (senderIdToUse) {
         sendOptions.from = senderIdToUse;
       }
       
-      console.log('Send options:', sendOptions);
-      
       const response = await this.sms.send(sendOptions);
-      console.log('Full API response:', JSON.stringify(response, null, 2));
       
       if (response.SMSMessageData && response.SMSMessageData.Recipients) {
         const recipient = response.SMSMessageData.Recipients[0];
-        console.log('Recipient response:', recipient);
         
         if (recipient && recipient.status === 'Success') {
           return {
@@ -144,13 +119,7 @@ constructor() {
         throw new Error('Invalid response from SMS API');
       }
     } catch (error) {
-      console.error('SMS sending error details:', {
-        message: error.message,
-        stack: error.stack,
-        phone: phoneNumber,
-        apiKeyPresent: !!this.apiKey,
-        username: this.username
-      });
+      console.error('SMS sending failed:', error.message);
       
       return {
         success: false,
@@ -321,18 +290,17 @@ constructor() {
   processTemplate(template, variables) {
     let message = template;
     
-    // Replace template variables like {{customer_name}}, {{amount}}, etc.
+    // Replace template variables
     for (const [key, value] of Object.entries(variables)) {
       const placeholder = `{{${key}}}`;
       message = message.replace(new RegExp(placeholder, 'g'), value || '');
     }
     
-    // Clean up any remaining placeholders
+    // Clean up remaining placeholders
     message = message.replace(/\{\{[^}]+\}\}/g, '');
     
-    // Ensure message is within SMS length limits (160 chars for single SMS)
+    // Ensure message is within SMS length limits
     if (message.length > 160) {
-      console.warn(`SMS message truncated from ${message.length} to 160 characters`);
       message = message.substring(0, 157) + '...';
     }
     

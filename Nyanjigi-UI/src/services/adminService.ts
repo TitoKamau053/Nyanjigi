@@ -402,7 +402,7 @@ export const adminService = {
 
   // NOTIFICATIONS
   sendNotifications: (data: {
-    notification_type: 'bill' | 'contribution';
+    notification_type: 'bill' | 'contribution' | 'fine' | 'overdue';
     message: string;
     customer_ids?: number[];
     send_to_all?: boolean;
@@ -411,7 +411,7 @@ export const adminService = {
   getNotificationHistory: (params?: {
     page?: number;
     limit?: number;
-    notification_type?: 'bill' | 'contribution';
+    notification_type?: 'bill' | 'contribution' | 'fine' | 'overdue';
     start_date?: string;
     end_date?: string;
   }) => {
@@ -424,10 +424,19 @@ export const adminService = {
     return api.get(`/notifications/history?${query.toString()}`);
   },
 
-  getCustomersForNotification: (params?: { search?: string; zone?: string }) => {
+  getCustomersForNotification: (params?: { 
+    search?: string; 
+    zone?: string; 
+    page?: number; 
+    limit?: number;
+    all?: boolean;
+  }) => {
     const query = new URLSearchParams();
     if (params?.search) query.append('search', params.search);
     if (params?.zone) query.append('zone', params.zone);
+    if (params?.page) query.append('page', params.page.toString());
+    if (params?.limit) query.append('limit', params.limit.toString());
+    if (params?.all) query.append('all', 'true');
     return api.get(`/notifications/customers?${query.toString()}`);
   },
 

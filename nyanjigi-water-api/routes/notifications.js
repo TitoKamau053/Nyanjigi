@@ -77,8 +77,8 @@ router.get(
     query('search')
       .optional()
       .trim()
-      .isLength({ max: 100 })
-      .withMessage('Search must be less than 100 characters'),
+      .isLength({ max: 1000 })
+      .withMessage('Search must be less than 1000 characters'),
     query('zone')
       .optional()
       .trim()

@@ -56,9 +56,10 @@ const limiter = rateLimit({
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   skip: (req) => {
-    // Skip rate limiting for health checks and webhooks
+    // Skip rate limiting for health checks, webhooks, and notification customer selection
     return req.path === '/api/v1/health' || 
-           req.path === '/api/v1/payments/jenga-callback';
+           req.path === '/api/v1/payments/jenga-callback' ||
+           req.path === '/api/v1/notifications/customers';
   }
 });
 app.use('/api/', limiter);
@@ -200,7 +201,7 @@ const server = app.listen(PORT,'0.0.0.0', async () => {
   }
   
   console.log('='.repeat(50));
-  console.log('🎯 Ready to accept requests!');
+  console.log('Ready to accept requests!');
   
   if (NODE_ENV === 'development') {
     console.log('\nDevelopment URLs:');
@@ -212,26 +213,26 @@ const server = app.listen(PORT,'0.0.0.0', async () => {
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('\n🛑 SIGTERM received. Shutting down gracefully...');
+  console.log('\SIGTERM received. Shutting down gracefully...');
   await SchedulerService.shutdown().catch(err => console.error('Scheduler shutdown failed:', err.message));
   server.close(() => {
-    console.log('✅ Server closed successfully');
+    console.log('Server closed successfully');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', async () => {
-  console.log('\n🛑 SIGINT received. Shutting down gracefully...');
+  console.log('\nSIGINT received. Shutting down gracefully...');
   await SchedulerService.shutdown().catch(err => console.error('Scheduler shutdown failed:', err.message));
   server.close(() => {
-    console.log('✅ Server closed successfully');
+    console.log('Server closed successfully');
     process.exit(0);
   });
 });
 
 // Unhandled promise rejections
 process.on('unhandledRejection', (err) => {
-  console.error('💥 Unhandled Promise Rejection:', err);
+  console.error('Unhandled Promise Rejection:', err);
   server.close(() => {
     process.exit(1);
   });
@@ -239,7 +240,7 @@ process.on('unhandledRejection', (err) => {
 
 // Uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.error('💥 Uncaught Exception:', err);
+  console.error('Uncaught Exception:', err);
   process.exit(1);
 });
 

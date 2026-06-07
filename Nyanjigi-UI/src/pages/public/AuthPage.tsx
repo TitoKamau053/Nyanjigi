@@ -41,11 +41,10 @@ const AuthPage: React.FC = () => {
     setSecretClickCount(prev => {
       const newCount = prev + 1;
       if (newCount === 3) {
-        // Toggle between modes on 3rd click
         const newTab = activeTab === 'customer' ? 'admin' : 'customer';
         setActiveTab(newTab);
         addToast(
-          newTab === 'admin' ? 'Admin Access Enabled 🛡️' : 'Returned to Member Login', 
+          newTab === 'admin' ? 'Admin Access Enabled' :'Returned to Member Login', 
           newTab === 'admin' ? 'success' : 'info'
         );
         return 0; // Reset counter
@@ -76,10 +75,8 @@ const AuthPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-white flex flex-col md:flex-row">
       
-      {/* Left Side - Image/Brand Area (Hidden on mobile) */}
       <div className="hidden md:flex md:w-1/2 bg-blue-900 relative overflow-hidden items-center justify-center p-12">
         <div className="absolute inset-0 z-0 opacity-40">
-           {/* [FIX] Using local background image */}
            <img 
             src={IMAGES.bg} 
             alt="Background" 
@@ -91,7 +88,6 @@ const AuthPage: React.FC = () => {
         <div className="relative z-10 text-white max-w-lg">
           <div className="mb-8">
             <div className="bg-white/20 p-4 rounded-2xl w-fit backdrop-blur-md border border-white/10 mb-6">
-              {/* [FIX] Using local logo in left panel */}
               <img 
                 src={IMAGES.logo} 
                 alt="Nyanjigi Logo" 

@@ -16,26 +16,26 @@ class SchedulerService {
   async initialize() {
     try {
       if (this.isInitialized) {
-        console.log('SchedulerService already initialized');
+        console.log('Scheduler already initialized');
         return;
       }
 
-      console.log('Initializing SchedulerService...');
+      console.log('Initializing scheduler...');
 
-      // Schedule all automated jobs
+      // Schedule core billing and fine logic
       await this.scheduleMonthlyBilling();
-      await this.scheduleMonthlyContributions();
-      await this.scheduleOverdueNotifications();
+      // await this.scheduleMonthlyContributions();  // Disabled: manual admin trigger only
+      // await this.scheduleOverdueNotifications();  // Disabled: manual admin trigger only
       await this.scheduleFineApplication();
       await this.scheduleBillStatusUpdates();
       await this.scheduleScheduledNotifications();
       await this.scheduleSystemMaintenance();
 
       this.isInitialized = true;
-      console.log('SchedulerService initialized successfully');
-      console.log(`Active jobs: ${this.jobs.size}`);
+      console.log('Scheduler initialized successfully');
+      console.log(`Jobs scheduled: ${this.jobs.size}`);
     } catch (error) {
-      console.error('SchedulerService initialization failed:', error);
+      console.error('Scheduler initialization failed:', error);
       throw error;
     }
   }
@@ -43,20 +43,19 @@ class SchedulerService {
   // Schedule monthly billing (1st of each month at 6:00 AM)
   async scheduleMonthlyBilling() {
     const task = cron.schedule('0 6 1 * *', async () => {
-      console.log('Starting automated monthly billing...');
-      
       try {
         const currentMonth = moment().startOf('month').format('YYYY-MM-DD');
         
         // Generate bills for all active customers
         const result = await Bill.generateMonthlyBills(currentMonth);
         
-        console.log(`Monthly billing completed: ${result.generated_count} bills generated`);
+        console.log(`Monthly billing: ${result.generated_count} bills generated`);
         
-        if (result.notifications && result.notifications.length > 0) {
-          const dispatch = await NotificationService.sendBillingCycleMessages(result.notifications);
-          console.log('Bill notifications sent', dispatch.summary);
-        }
+        // Notification sending is now manual via admin API
+        // if (result.notifications && result.notifications.length > 0) {
+        //   const dispatch = await NotificationService.sendBillingCycleMessages(result.notifications);
+        //   console.log('Bill notifications sent', dispatch.summary);
+        // }
         delete result.notifications;
         
         // Log the activity
@@ -77,128 +76,40 @@ class SchedulerService {
     });
 
     this.jobs.set('monthly_billing', task);
-    console.log('📅 Monthly billing job scheduled (1st of month at 6:00 AM)');
+    console.log('Monthly billing scheduled (1st of month at 6:00 AM)');
   }
 
-  // Schedule monthly contributions (1st of each month at 7:00 AM)
-  async scheduleMonthlyContributions() {
-    const task = cron.schedule('0 7 1 * *', async () => {
-      console.log('💰 Starting automated monthly contributions...');
-      
-      try {
-        const currentMonth = moment().startOf('month').format('YYYY-MM-DD');
-        
-        // Generate contributions for all active customers
-        const result = await Contribution.generateMonthlyContributions(currentMonth);
-        
-        console.log(`✅ Monthly contributions completed: ${result.generated_count} contributions generated`);
-        
-        // Send contribution reminders if contributions were generated
-        if (result.generated_count > 0) {
-          const contributions = await Contribution.getContributionsWithPagination(1, result.generated_count, {
-            contribution_month: currentMonth
-          });
-          
-          if (contributions.contributions && contributions.contributions.length > 0) {
-            if (typeof NotificationService.sendContributionReminders === 'function') {
-              await NotificationService.sendContributionReminders(contributions.contributions);
-            } else {
-              console.warn('sendContributionReminders not available on NotificationService; reminders skipped');
-            }
-            console.log('📱 Contribution reminders sent');
-          }
-        }
-        
-        // Log the activity
-        await this.logScheduledActivity('monthly_contributions', 'success', {
-          contributions_generated: result.generated_count,
-          contribution_month: currentMonth
-        });
-        
-      } catch (error) {
-        console.error('❌ Monthly contributions failed:', error);
-        await this.logScheduledActivity('monthly_contributions', 'failed', {
-          error: error.message
-        });
-      }
-    }, {
-      scheduled: false,
-      timezone: 'Africa/Nairobi'
-    });
+  // DISABLED: Monthly contributions scheduling
+  // Manual admin trigger only - no automatic generation
+  // async scheduleMonthlyContributions() {
+  //   const task = cron.schedule('0 7 1 * *', async () => {
+  //     // Contribution generation and notifications are now handled manually
+  //   }, {
+  //     scheduled: false,
+  //     timezone: 'Africa/Nairobi'
+  //   });
+  // }
 
-    this.jobs.set('monthly_contributions', task);
-    console.log('📅 Monthly contributions job scheduled (1st of month at 7:00 AM)');
-  }
+  // DISABLED: Overdue notifications scheduling
+  // Manual admin trigger only - admins will send overdue notices via API
+  // async scheduleOverdueNotifications() {
+  //   const task = cron.schedule('0 9 * * *', async () => {
+  //     // Overdue notifications are now sent manually by admin
+  //   }, {
+  //     scheduled: false,
+  //     timezone: 'Africa/Nairobi'
+  //   });
+  // }
 
-  // Schedule overdue notifications (daily at 9:00 AM)
-  async scheduleOverdueNotifications() {
-    const task = cron.schedule('0 9 * * *', async () => {
-      console.log('⚠️ Processing overdue notifications...');
-      
-      try {
-        // Get overdue bills
-        const overdueBills = await Bill.getOverdueBills(500);
-        
-        if (overdueBills.length > 0) {
-          if (typeof NotificationService.sendOverdueNotices === 'function') {
-            await NotificationService.sendOverdueNotices(overdueBills);
-          } else {
-            console.warn('sendOverdueNotices not available on NotificationService; overdue notices skipped');
-          }
-          console.log(`📱 Overdue notices sent to ${overdueBills.length} customers`);
-        }
-        
-        // Get overdue contributions
-        const overdueContributions = await Contribution.getOverdueContributions(500);
-        
-        if (overdueContributions.length > 0) {
-          if (typeof NotificationService.sendContributionReminders === 'function') {
-            await NotificationService.sendContributionReminders(overdueContributions);
-          } else {
-            console.warn('sendContributionReminders not available on NotificationService; contribution reminders skipped');
-          }
-          console.log(`📱 Contribution reminders sent to ${overdueContributions.length} customers`);
-        }
-        
-        // Log the activity
-        await this.logScheduledActivity('overdue_notifications', 'success', {
-          overdue_bills: overdueBills.length,
-          overdue_contributions: overdueContributions.length
-        });
-        
-      } catch (error) {
-        console.error('❌ Overdue notifications failed:', error);
-        await this.logScheduledActivity('overdue_notifications', 'failed', {
-          error: error.message
-        });
-      }
-    }, {
-      scheduled: false,
-      timezone: 'Africa/Nairobi'
-    });
-
-    this.jobs.set('overdue_notifications', task);
-    console.log('📅 Overdue notifications job scheduled (daily at 9:00 AM)');
-  }
-
-/**
- * Improved Fine Application Scheduler
- * Fixes the grace period calculation bug
- */
-
+// Calculate and apply fines after grace period has elapsed
 async scheduleFineApplication() {
   const task = cron.schedule('0 10 * * *', async () => {
-    console.log('💸 Processing automatic fines...');
-    
     try {
       // Get system settings
       const billingSettings = await SystemSettings.getBillingSettings();
       const graceDays = billingSettings.late_fine_grace_days || 5;
       
-      console.log(`Fine application settings: ${graceDays} days grace period`);
-      
-      // FIXED: Get bills that are overdue AFTER grace period
-      // If due date is Nov 5 and grace is 5 days, fine applies on Nov 11
+      // Get bills that are overdue AFTER grace period
       const overdueQuery = `
         SELECT 
           b.id as bill_id,
@@ -223,7 +134,6 @@ async scheduleFineApplication() {
         FROM bills b
         JOIN customers c ON b.customer_id = c.id
         WHERE b.status IN ('pending', 'overdue', 'partially_paid')
-        -- FIXED: Bill is overdue PLUS grace period has passed
         AND DATE_ADD(b.due_date, INTERVAL ? DAY) < CURDATE()
         AND c.is_active = TRUE
         HAVING fine_exists = 0
@@ -319,8 +229,7 @@ async scheduleFineApplication() {
             fine_amount: fineAmount
           });
           
-          console.log(`✅ Applied fine of KES ${fineAmount} to bill ${bill.bill_number} ` +
-                     `(${bill.days_past_due} days overdue)`);
+          console.log(`Applied fine of KES ${fineAmount} to bill ${bill.bill_number}`);
           
         } catch (error) {
           failedFines++;
@@ -340,46 +249,15 @@ async scheduleFineApplication() {
         details: fineDetails.slice(0, 10) // Log first 10 for audit
       });
       
-      console.log(`✅ Fine application completed: ${appliedFines} applied, ${failedFines} failed`);
+      console.log(`Fine application completed: ${appliedFines} applied, ${failedFines} failed`);
       
-      // Send notifications to customers who received fines
-      if (appliedFines > 0 && overdueBills.length > 0) {
-        try {
-          const NotificationService = require('../services/NotificationService');
-          
-          for (const bill of overdueBills.slice(0, appliedFines)) {
-            const customer = {
-              id: bill.customer_id,
-              full_name: bill.full_name,
-              phone: bill.phone,
-              account_number: bill.account_number
-            };
-            
-            const fineAmount = fineType.is_percentage 
-              ? (parseFloat(bill.total_amount) * parseFloat(fineType.amount)) / 100
-              : parseFloat(fineType.amount);
-            
-            await NotificationService.sendNotification(
-              customer,
-              'fine_applied',
-              {
-                customer_name: bill.full_name,
-                amount: fineAmount.toFixed(2),
-                reason: `Late payment for bill ${bill.bill_number}`,
-                balance: (parseFloat(bill.total_amount) + fineAmount).toFixed(2),
-                days_overdue: bill.days_past_due
-              }
-            );
-          }
-          
-          console.log(`📱 Sent fine notifications to ${appliedFines} customers`);
-        } catch (notificationError) {
-          console.error('Failed to send fine notifications:', notificationError.message);
-        }
-      }
+      // Notification sending for fines is now manual via admin API
+      // if (appliedFines > 0 && overdueBills.length > 0) {
+      //   Admins will send fine notifications manually to customers
+      // }
       
     } catch (error) {
-      console.error('❌ Fine application failed:', error);
+      console.error('Fine application failed:', error);
       await this.logScheduledActivity('fine_application', 'failed', {
         error: error.message,
         stack: error.stack
@@ -391,12 +269,10 @@ async scheduleFineApplication() {
   });
 
   this.jobs.set('fine_application', task);
-  console.log('📅 Fine application job scheduled (daily at 10:00 AM)');
+  console.log('Fine application scheduled (daily at 10:00 AM)');
 }
 
-/**
- * Validation helper for fine application
- */
+// Validate if a bill is eligible for fine application
 async validateFineApplication(billId) {
   const { executeQuery } = require('../config/database');
   
@@ -444,16 +320,14 @@ async validateFineApplication(billId) {
 }
 
 
-  // Schedule bill status updates (daily at 8:00 AM)
+  // Update bill statuses daily (daily at 8:00 AM)
   async scheduleBillStatusUpdates() {
     const task = cron.schedule('0 8 * * *', async () => {
-      console.log('📊 Updating bill statuses...');
-      
       try {
         const updatedCount = await Bill.updateBillStatuses();
         
         if (updatedCount > 0) {
-          console.log(`✅ Updated ${updatedCount} bills from pending to overdue`);
+          console.log(`Updated ${updatedCount} bills to overdue status`);
         }
         
         // Log the activity
@@ -462,7 +336,7 @@ async validateFineApplication(billId) {
         });
         
       } catch (error) {
-        console.error('❌ Bill status updates failed:', error);
+        console.error('Bill status updates failed:', error);
         await this.logScheduledActivity('bill_status_updates', 'failed', {
           error: error.message
         });
@@ -473,20 +347,20 @@ async validateFineApplication(billId) {
     });
 
     this.jobs.set('bill_status_updates', task);
-    console.log('📅 Bill status updates job scheduled (daily at 8:00 AM)');
+    console.log('Bill status updates scheduled (daily at 8:00 AM)');
   }
 
-  // Schedule processing of scheduled notifications (every 5 minutes)
+  // Process scheduled notifications (every 5 minutes)
   async scheduleScheduledNotifications() {
     const task = cron.schedule('*/5 * * * *', async () => {
       try {
         const result = await NotificationService.processScheduledNotifications();
         
         if (result.processed > 0) {
-          console.log(`📨 Processed ${result.processed} scheduled notifications (${result.successful} successful)`);
+          console.log(`Processed ${result.processed} scheduled notifications`);
         }
       } catch (error) {
-        console.error('❌ Scheduled notifications processing failed:', error);
+        console.error('Scheduled notifications processing failed:', error);
       }
     }, {
       scheduled: false,
@@ -494,13 +368,12 @@ async validateFineApplication(billId) {
     });
 
     this.jobs.set('scheduled_notifications', task);
-    console.log('📅 Scheduled notifications job scheduled (every 5 minutes)');
+    console.log('Scheduled notifications processor running (every 5 minutes)');
   }
 
-  // Schedule system maintenance tasks (daily at 2:00 AM)
+  // Run system maintenance tasks (daily at 2:00 AM)
   async scheduleSystemMaintenance() {
     const task = cron.schedule('0 2 * * *', async () => {
-      console.log('🔧 Starting system maintenance...');
       
       try {
         const maintenanceTasks = [];
@@ -538,7 +411,7 @@ async validateFineApplication(billId) {
           maintenanceTasks.push('Scheduled notifications cleanup skipped (table not found)');
         }
         
-        console.log('✅ System maintenance completed:', maintenanceTasks);
+        console.log('System maintenance completed');
         
         // Log the activity
         await this.logScheduledActivity('system_maintenance', 'success', {
@@ -547,7 +420,7 @@ async validateFineApplication(billId) {
         });
         
       } catch (error) {
-        console.error('❌ System maintenance failed:', error);
+        console.error('System maintenance failed:', error);
         await this.logScheduledActivity('system_maintenance', 'failed', {
           error: error.message
         });
@@ -558,58 +431,16 @@ async validateFineApplication(billId) {
     });
 
     this.jobs.set('system_maintenance', task);
-    console.log('📅 System maintenance job scheduled (daily at 2:00 AM)');
+    console.log('System maintenance job scheduled (daily at 2:00 AM)');
   }
 
   // Start all scheduled jobs
   startAll() {
-    console.log('▶️ Starting all scheduled jobs...');
-    
     this.jobs.forEach((task, name) => {
       task.start();
-      console.log(`✅ Started job: ${name}`);
     });
     
-    console.log(`🚀 All ${this.jobs.size} jobs started successfully`);
-  }
-
-  // Stop all scheduled jobs
-  stopAll() {
-    console.log('⏹️ Stopping all scheduled jobs...');
-    
-    this.jobs.forEach((task, name) => {
-      task.stop();
-      console.log(`🛑 Stopped job: ${name}`);
-    });
-    
-    console.log('⏸️ All jobs stopped');
-  }
-
-  // Start specific job
-  startJob(jobName) {
-    const job = this.jobs.get(jobName);
-    if (job) {
-      job.start();
-      console.log(`▶️ Started job: ${jobName}`);
-      return true;
-    } else {
-      console.error(`❌ Job not found: ${jobName}`);
-      return false;
-    }
-  }
-
-  // Stop specific job
-  stopJob(jobName) {
-    const job = this.jobs.get(jobName);
-    if (job) {
-      job.stop();
-      console.log(`⏹️ Stopped job: ${jobName}`);
-      return true;
-    } else {
-      console.error(`❌ Job not found: ${jobName}`);
-      return false;
-    }
-  }
+    console.log(`All ${this.jobs.size} jobs started`);} // Stop all scheduled jobs\n  stopAll() {\n    this.jobs.forEach((task, name) => {\n      task.stop();\n    });\n    \n    console.log('All jobs stopped');\n  }\n\n  // Start specific job\n  startJob(jobName) {\n    const job = this.jobs.get(jobName);\n    if (job) {\n      job.start();\n      return true;\n    } else {\n      console.error(`Job not found: ${jobName}`);\n      return false;\n    }\n  }\n\n  // Stop specific job\n  stopJob(jobName) {\n    const job = this.jobs.get(jobName);\n    if (job) {\n      job.stop();\n      return true;\n    } else {\n      console.error(`Job not found: ${jobName}`);\n      return false;\n    }\n  }
 
   // Get job status
   getJobStatus() {
@@ -631,8 +462,6 @@ async validateFineApplication(billId) {
     if (!job) {
       throw new Error(`Job not found: ${jobName}`);
     }
-    
-    console.log(`🔧 Running job immediately: ${jobName}`);
     
     // Get the task function and execute it
     try {
@@ -660,10 +489,8 @@ async validateFineApplication(billId) {
         default:
           throw new Error(`No manual runner for job: ${jobName}`);
       }
-      
-      console.log(`✅ Job completed: ${jobName}`);
     } catch (error) {
-      console.error(`❌ Job failed: ${jobName}`, error);
+      console.error(`Job execution failed: ${jobName}`, error);
       throw error;
     }
   }
@@ -890,7 +717,7 @@ async validateFineApplication(billId) {
 
   // Graceful shutdown
   async shutdown() {
-    console.log('🔄 Shutting down SchedulerService...');
+    console.log('Shutting down scheduler...');
     
     this.stopAll();
     
@@ -900,7 +727,7 @@ async validateFineApplication(billId) {
     this.jobs.clear();
     this.isInitialized = false;
     
-    console.log('✅ SchedulerService shutdown complete');
+    console.log('Scheduler shutdown complete');
   }
 }
 

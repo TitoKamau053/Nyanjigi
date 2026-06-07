@@ -1,6 +1,6 @@
 const { Customer, Bill, Contribution } = require('../models');
 const { NotificationService } = require('../services');
-const { ApiResponse } = require('../utils/response');
+const ApiResponse = require('../utils/response');
 const { validationResult } = require('express-validator');
 
 /**
@@ -15,38 +15,36 @@ class NotificationController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json(ApiResponse.error('Validation failed', errors.array()));
+        return ApiResponse.validationError(res, errors.array());
       }
 
       const { customer_ids, notification_type, message, send_to_all = false } = req.body;
       const admin_id = req.user?.id;
 
       if (!admin_id) {
-        return res.status(401).json(ApiResponse.error('Unauthorized'));
+        return ApiResponse.error(res, 'Unauthorized', 401);
       }
 
       if (!notification_type || !['bill', 'contribution'].includes(notification_type)) {
-        return res.status(400).json(ApiResponse.error('Invalid notification_type'));
+        return ApiResponse.error(res, 'Invalid notification_type', 400);
       }
 
       if (!message || message.trim().length === 0) {
-        return res.status(400).json(ApiResponse.error('Message is required'));
+        return ApiResponse.error(res, 'Message is required', 400);
       }
 
       if (!send_to_all && (!customer_ids || !Array.isArray(customer_ids) || customer_ids.length === 0)) {
-        return res.status(400).json(ApiResponse.error('customer_ids required when not sending to all'));
+        return ApiResponse.error(res, 'customer_ids required when not sending to all', 400);
       }
 
       // Get customers to notify
       let customers = [];
       if (send_to_all) {
-        // Get all active customers
         customers = await Customer.findAll({
           where: { is_active: 1 },
           attributes: ['id', 'full_name', 'phone', 'account_number', 'zone']
         });
       } else {
-        // Get specific customers
         customers = await Customer.findAll({
           where: { 
             id: customer_ids,
@@ -57,7 +55,7 @@ class NotificationController {
       }
 
       if (!customers || customers.length === 0) {
-        return res.status(404).json(ApiResponse.error('No active customers found'));
+        return ApiResponse.error(res, 'No active customers found', 404);
       }
 
       // Send notifications
@@ -134,13 +132,12 @@ class NotificationController {
         });
       } catch (logError) {
         console.error('Failed to log notification batch:', logError);
-        // Don't fail the request, just log the error
       }
 
-      return res.status(200).json(ApiResponse.success('Notifications sent', results));
+      return ApiResponse.success(res, results, 'Notifications sent', 200);
     } catch (error) {
       console.error('Error in sendNotifications:', error);
-      return res.status(500).json(ApiResponse.error('Failed to send notifications', error.message));
+      return ApiResponse.error(res, 'Failed to send notifications', 500, error.message);
     }
   }
 
@@ -153,7 +150,7 @@ class NotificationController {
       const { page = 1, limit = 20, notification_type, start_date, end_date } = req.query;
       const offset = (page - 1) * limit;
 
-      let query = 'SELECT * FROM notification_logs WHERE 1=1';
+      let query = 'SELECT * FROM notifications_sent WHERE 1=1';
       const params = [];
 
       if (notification_type) {
@@ -178,7 +175,7 @@ class NotificationController {
       const notifications = await executeQuery(query, params);
 
       // Get total count
-      let countQuery = 'SELECT COUNT(*) as count FROM notification_logs WHERE 1=1';
+      let countQuery = 'SELECT COUNT(*) as count FROM notifications_sent WHERE 1=1';
       const countParams = [];
 
       if (notification_type) {
@@ -199,62 +196,150 @@ class NotificationController {
       const [countResult] = await executeQuery(countQuery, countParams);
       const total = countResult?.count || 0;
 
-      return res.status(200).json(ApiResponse.success('Notification history retrieved', {
+      const paginationData = {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        total_pages: Math.ceil(total / limit)
+      };
+
+      return ApiResponse.success(res, {
         notifications: notifications || [],
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total,
-          total_pages: Math.ceil(total / limit)
-        }
-      }));
+        pagination: paginationData
+      }, 'Notification history retrieved', 200);
     } catch (error) {
       console.error('Error in getNotificationHistory:', error);
-      return res.status(500).json(ApiResponse.error('Failed to fetch notification history', error.message));
+      return ApiResponse.error(res, 'Failed to fetch notification history', 500, error.message);
     }
   }
 
   /**
    * Get customers for selection
-   * GET /notifications/customers
+   * GET /notifications/customers?page=1&limit=50&search=&zone=
    */
   static async getCustomersForNotification(req, res) {
     try {
-      const { search = '', zone } = req.query;
+      const { search = '', zone = '', page = 1, limit = 100, all = false } = req.query;
+      
+      console.log('\n========== NOTIFICATION CONTROLLER DEBUG ==========');
+      console.log('Request URL:', req.url);
+      console.log('Query params:', req.query);
+      console.log('Search value:', search);
+      console.log('Search type:', typeof search);
+      console.log('Search length:', search.length);
+      console.log('==================================================\n');
 
-      let query = 'SELECT id, full_name, account_number, phone, zone FROM customers WHERE is_active = 1';
+      // Get all customers (both active and inactive) for notifications
+      let baseQuery = `SELECT id, full_name, account_number, phone, zone, is_active FROM customers`;
+      let countQuery = `SELECT COUNT(*) as count FROM customers`;
       const params = [];
+      const countParams = [];
+      
+      let whereAdded = false;
 
-      if (search) {
-        query += ' AND (full_name LIKE ? OR account_number LIKE ? OR phone LIKE ?)';
+      if (search && search.trim().length > 0) {
         const searchTerm = `%${search}%`;
+        const searchCondition = ' WHERE (full_name LIKE ? OR account_number LIKE ? OR phone LIKE ?)';
+        baseQuery += searchCondition;
+        countQuery += searchCondition;
         params.push(searchTerm, searchTerm, searchTerm);
+        countParams.push(searchTerm, searchTerm, searchTerm);
+        whereAdded = true;
+        console.log('✓ SEARCH ENABLED');
+        console.log('  Search term:', searchTerm);
+        console.log('  Count Query:', countQuery);
+        console.log('  Count Params:', countParams);
+      } else {
+        console.log('✗ NO SEARCH - Returning all customers');
       }
 
       if (zone) {
-        query += ' AND zone = ?';
+        const zoneCondition = whereAdded ? ' AND zone = ?' : ' WHERE zone = ?';
+        baseQuery += zoneCondition;
+        countQuery += zoneCondition;
         params.push(zone);
+        countParams.push(zone);
+        whereAdded = true;
+        console.log('✓ ZONE FILTER:', zone);
       }
 
-      query += ' ORDER BY full_name LIMIT 100';
-
+      // Get total count
       const { executeQuery } = require('../config/database');
-      const customers = await executeQuery(query, params);
-
-      return res.status(200).json({
-        success: true,
-        message: 'Customers retrieved',
-        data: {
-          customers: customers || []
+      console.log('\nExecuting COUNT query...');
+      const countResult = await executeQuery(countQuery, countParams);
+      const [result] = countResult;
+      const total = result?.count || 0;
+      console.log('Total customers found:', total);
+      
+      if (search && search.trim().length > 0 && total === 0) {
+        console.log('\n⚠️  SEARCH RETURNED 0 RESULTS!');
+        console.log('Full count query:', countQuery);
+        console.log('Count params:', countParams);
+        
+        // Debug: Check total without filter
+        const allCountResult = await executeQuery('SELECT COUNT(*) as count FROM customers', []);
+        console.log('Total customers in DB (no filter):', allCountResult[0]?.count);
+        
+        // Debug: Try direct search on just full_name
+        const testQuery = 'SELECT id, full_name FROM customers WHERE full_name LIKE ? LIMIT 5';
+        const testResults = await executeQuery(testQuery, [`%${search}%`]);
+        console.log('Direct LIKE search on full_name:', testResults?.length || 0, 'results');
+        if (testResults && testResults.length > 0) {
+          testResults.forEach(r => console.log('  -', r));
         }
-      });
+      }
+
+      baseQuery += ' ORDER BY full_name';
+
+      let customers = [];
+      let pagination = null;
+
+      // If 'all' parameter is true, get all customers without pagination
+      if (all === 'true' || all === true) {
+        console.log('\nFetching ALL customers (no pagination)');
+        customers = await executeQuery(baseQuery, params);
+        console.log('Customers returned:', customers?.length || 0);
+        pagination = {
+          page: 1,
+          limit: total,
+          total: total,
+          total_pages: 1,
+          has_more: false
+        };
+      } else {
+        // Apply pagination
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.min(1000, Math.max(1, parseInt(limit) || 100));
+        const offset = (pageNum - 1) * limitNum;
+
+        baseQuery += ' LIMIT ? OFFSET ?';
+        params.push(limitNum, offset);
+        
+        console.log('\nFetching page', pageNum, 'with limit', limitNum, 'offset', offset);
+        console.log('Base query:', baseQuery);
+        console.log('Params:', params);
+        customers = await executeQuery(baseQuery, params);
+        console.log('Customers returned:', customers?.length || 0);
+
+        pagination = {
+          page: pageNum,
+          limit: limitNum,
+          total: total,
+          total_pages: Math.ceil(total / limitNum),
+          has_more: (pageNum * limitNum) < total
+        };
+      }
+
+      console.log('RESPONSE: ', customers?.length, 'customers, pagination:', pagination);
+      console.log('==========================================\n');
+
+      return ApiResponse.success(res, {
+        customers: customers || [],
+        pagination
+      }, 'Customers retrieved', 200);
     } catch (error) {
-      console.error('Error in getCustomersForNotification:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to fetch customers',
-        error: error.message
-      });
+      console.error('❌ ERROR in getCustomersForNotification:', error);
+      return ApiResponse.error(res, 'Failed to fetch customers', 500, error.message);
     }
   }
 }

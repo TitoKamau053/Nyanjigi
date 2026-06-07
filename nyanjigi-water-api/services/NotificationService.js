@@ -3,7 +3,7 @@ const { SystemSettings } = require('../models');
 const { executeQuery } = require('../config/database');
 
 /**
- * Notification Service - Orchestrates SMS and Email notifications
+ * Notification Service - Handles SMS notifications
  */
 class NotificationService {
   constructor() {
