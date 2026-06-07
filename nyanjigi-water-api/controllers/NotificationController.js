@@ -47,21 +47,19 @@ class NotificationController {
         return ApiResponse.error(res, 'customer_ids required when not sending to all', 400);
       }
 
-      // Get customers to notify
+    // Get customers to notify
       let customers = [];
       if (send_to_all) {
-        customers = await Customer.findAll({
-          where: { is_active: 1 },
-          attributes: ['id', 'full_name', 'phone', 'account_number', 'zone']
-        });
+        customers = await Customer.rawQuery(
+          'SELECT id, full_name, phone, account_number, zone FROM customers WHERE is_active = 1'
+        );
       } else {
-        customers = await Customer.findAll({
-          where: { 
-            id: customer_ids,
-            is_active: 1
-          },
-          attributes: ['id', 'full_name', 'phone', 'account_number', 'zone']
-        });
+        // Create parameter placeholders for the IN clause (?,?,?)
+        const placeholders = customer_ids.map(() => '?').join(',');
+        customers = await Customer.rawQuery(
+          `SELECT id, full_name, phone, account_number, zone FROM customers WHERE is_active = 1 AND id IN (${placeholders})`,
+          customer_ids
+        );
       }
 
       if (!customers || customers.length === 0) {
