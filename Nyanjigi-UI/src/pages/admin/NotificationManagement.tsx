@@ -98,18 +98,67 @@ const NotificationManagement: React.FC = () => {
 
   const loadMoreCustomers = async () => {
     if (currentPage < totalPages) {
-      await fetchCustomers(currentPage + 1);
+      try {
+        setLoading(true);
+        const params: any = { page: currentPage + 1, limit: 100 };
+        if (searchTerm) params.search = searchTerm;
+        if (filterZone) params.zone = filterZone;
+        
+        const response = await adminService.getCustomersForNotification(params);
+        const data = response.data?.data?.customers || [];
+        const pagination = response.data?.data?.pagination;
+        
+        // Append to existing customers
+        setCustomers(prev => [...prev, ...data]);
+        setFilteredCustomers(prev => [...prev, ...data]);
+        
+        if (pagination) {
+          setCurrentPage(pagination.page);
+          setTotalPages(pagination.total_pages);
+        }
+      } catch (error: any) {
+        addToast(error.response?.data?.message || 'Failed to load more customers', 'error');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
   const handleSearch = (term: string) => {
     setSearchTerm(term);
-    filterCustomersList(term, filterZone);
+    setCurrentPage(1);
+    searchCustomers(term, filterZone);
   };
 
   const handleZoneFilter = (zone: string) => {
     setFilterZone(zone);
-    filterCustomersList(searchTerm, zone);
+    setCurrentPage(1);
+    searchCustomers(searchTerm, zone);
+  };
+
+  const searchCustomers = async (search: string, zone: string) => {
+    try {
+      setLoading(true);
+      const params: any = { page: 1, limit: 100 };
+      if (search) params.search = search;
+      if (zone) params.zone = zone;
+      
+      const response = await adminService.getCustomersForNotification(params);
+      const data = response.data?.data?.customers || [];
+      const pagination = response.data?.data?.pagination;
+      
+      setCustomers(data);
+      setFilteredCustomers(data);
+      
+      if (pagination) {
+        setCurrentPage(pagination.page);
+        setTotalPages(pagination.total_pages);
+      }
+    } catch (error: any) {
+      addToast(error.response?.data?.message || 'Failed to search customers', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const filterCustomersList = (search: string, zone: string) => {
