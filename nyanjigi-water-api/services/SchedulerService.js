@@ -434,14 +434,35 @@ async validateFineApplication(billId) {
     console.log('System maintenance job scheduled (daily at 2:00 AM)');
   }
 
-  // Start all scheduled jobs
+// Start all scheduled jobs
   startAll() {
     this.jobs.forEach((task, name) => {
       task.start();
     });
     
-    console.log(`All ${this.jobs.size} jobs started`);} // Stop all scheduled jobs\n  stopAll() {\n    this.jobs.forEach((task, name) => {\n      task.stop();\n    });\n    \n    console.log('All jobs stopped');\n  }\n\n  // Start specific job\n  startJob(jobName) {\n    const job = this.jobs.get(jobName);\n    if (job) {\n      job.start();\n      return true;\n    } else {\n      console.error(`Job not found: ${jobName}`);\n      return false;\n    }\n  }\n\n  // Stop specific job\n  stopJob(jobName) {\n    const job = this.jobs.get(jobName);\n    if (job) {\n      job.stop();\n      return true;\n    } else {\n      console.error(`Job not found: ${jobName}`);\n      return false;\n    }\n  }
+    console.log(`All ${this.jobs.size} jobs started`);
+  }
 
+  // Stop all scheduled jobs
+  stopAll() {
+    this.jobs.forEach((task, name) => {
+      task.stop();
+    });
+    
+    console.log('All jobs stopped');
+  }
+
+  // Start specific job
+  startJob(jobName) {
+    const job = this.jobs.get(jobName);
+    if (job) {
+      job.start();
+      return true;
+    } else {
+      console.error(`Job not found: ${jobName}`);
+      return false;
+    }
+  }
   // Get job status
   getJobStatus() {
     const status = {};
