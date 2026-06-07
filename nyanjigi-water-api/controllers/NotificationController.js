@@ -13,15 +13,25 @@ class NotificationController {
    */
   static async sendNotifications(req, res) {
     try {
+      console.log('\n========== SEND NOTIFICATIONS DEBUG ==========');
+      console.log('Headers received:', {
+        authorization: req.headers.authorization ? 'PRESENT' : 'MISSING',
+        contentType: req.headers['content-type']
+      });
+      console.log('Admin attached:', req.admin ? `YES (${req.admin.username})` : 'NO');
+      console.log('Body:', req.body);
+      console.log('============================================\n');
+
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return ApiResponse.validationError(res, errors.array());
       }
 
       const { customer_ids, notification_type, message, send_to_all = false } = req.body;
-      const admin_id = req.user?.id;
+      const admin_id = req.admin?.id;
 
       if (!admin_id) {
+        console.error('❌ No admin_id found in request');
         return ApiResponse.error(res, 'Unauthorized', 401);
       }
 
