@@ -31,7 +31,7 @@ class NotificationController {
       const admin_id = req.admin?.id;
 
       if (!admin_id) {
-        console.error('❌ No admin_id found in request');
+        console.error('No admin_id found in request');
         return ApiResponse.error(res, 'Unauthorized', 401);
       }
 
