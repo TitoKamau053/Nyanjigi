@@ -76,8 +76,8 @@ class NotificationController {
         timestamp: new Date().toISOString()
       };
 
-      const notificationService = new NotificationService();
-
+    const notificationService = NotificationService;
+    
       for (const customer of customers) {
         try {
           // Personalize message with customer variables
