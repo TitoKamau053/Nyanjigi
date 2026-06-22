@@ -47,17 +47,23 @@ class NotificationController {
         return ApiResponse.error(res, 'customer_ids required when not sending to all', 400);
       }
 
-    // Get customers to notify
+      // Get customers to notify (UPDATED WITH SUBQUERIES FOR BILLS, CONTRIBUTIONS, AND FINES)
       let customers = [];
+      
+      const baseSelect = `
+        SELECT c.id, c.full_name, c.phone, c.account_number, c.zone,
+        COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) as total_bill,
+        COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND payment_status != 'fully_paid'), 0) as contribution_balance,
+        COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status = 'pending'), 0) as total_fines
+        FROM customers c WHERE c.is_active = 1
+      `;
+
       if (send_to_all) {
-        customers = await Customer.rawQuery(
-          'SELECT id, full_name, phone, account_number, zone FROM customers WHERE is_active = 1'
-        );
+        customers = await Customer.rawQuery(baseSelect);
       } else {
-        // Create parameter placeholders for the IN clause (?,?,?)
         const placeholders = customer_ids.map(() => '?').join(',');
         customers = await Customer.rawQuery(
-          `SELECT id, full_name, phone, account_number, zone FROM customers WHERE is_active = 1 AND id IN (${placeholders})`,
+          `${baseSelect} AND c.id IN (${placeholders})`,
           customer_ids
         );
       }
@@ -76,15 +82,23 @@ class NotificationController {
         timestamp: new Date().toISOString()
       };
 
-    const notificationService = NotificationService;
+      const notificationService = NotificationService;
 
       for (const customer of customers) {
         try {
-          // Personalize message with customer variables
+          // Format the amounts to currency standard (e.g. KES 1,500.00)
+          const formattedBill = `KES ${Number(customer.total_bill || 0).toFixed(2)}`;
+          const formattedContribution = `KES ${Number(customer.contribution_balance || 0).toFixed(2)}`;
+          const formattedFines = `KES ${Number(customer.total_fines || 0).toFixed(2)}`;
+
+          // Personalize message with all customer variables
           let personalizedMessage = message
             .replace(/\{customer_name\}/g, customer.full_name || 'Valued Customer')
             .replace(/\{account_number\}/g, customer.account_number || 'N/A')
-            .replace(/\{phone\}/g, customer.phone || 'N/A');
+            .replace(/\{phone\}/g, customer.phone || 'N/A')
+            .replace(/\{total_bill\}/g, formattedBill)
+            .replace(/\{contribution_balance\}/g, formattedContribution)
+            .replace(/\{total_fines\}/g, formattedFines);
 
           // Truncate to SMS limit if necessary
           if (personalizedMessage.length > 160) {
