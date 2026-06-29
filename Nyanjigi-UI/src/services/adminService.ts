@@ -478,6 +478,11 @@ export const adminService = {
 
 
   // DASHBOARD & ANALYTICS
+// adminService.ts — add alongside your existing methods
+
+  getDashboardComprehensive: (period: '7d' | '30d' | '90d' | 'yearly' = '30d') =>
+  api.get('/admin/dashboard-comprehensive', { params: { period } }),
+
   getDashboard: () => api.get('/admin/dashboard'),
   
   getRevenueAnalytics: (period: string) => api.get(`/admin/revenue-analytics?period=${period}`),

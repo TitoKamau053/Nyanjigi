@@ -2,6 +2,7 @@ const { Admin, Customer, Bill, Payment } = require('../models');
 const AuthUtils = require('../utils/auth');
 const ApiResponse = require('../utils/response');
 const { executeQuery } = require('../config/database');
+
 /**
  * Admin Controller - Handles admin authentication and management operations
  */
@@ -10,11 +11,7 @@ class AdminController {
   static async login(req, res) {
     try {
       const { username, password } = req.body;
-
-      // Authenticate admin
       const admin = await Admin.authenticateAdmin(username, password);
-
-      // Generate JWT token
       const token = AuthUtils.generateToken({
         id: admin.id,
         username: admin.username,
@@ -57,10 +54,7 @@ class AdminController {
   static async updateProfile(req, res) {
     try {
       const adminId = req.admin.id;
-      const updateData = req.body;
-
-      const updatedAdmin = await Admin.updateProfile(adminId, updateData);
-
+      const updatedAdmin = await Admin.updateProfile(adminId, req.body);
       return ApiResponse.success(res, updatedAdmin, 'Profile updated successfully');
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
@@ -72,8 +66,6 @@ class AdminController {
     try {
       const adminId = req.admin.id;
       const { current_password, new_password } = req.body;
-
-      // Verify current password
       const admin = await Admin.findById(adminId);
       const isValidPassword = await AuthUtils.comparePassword(current_password, admin.password_hash);
 
@@ -81,20 +73,29 @@ class AdminController {
         return ApiResponse.error(res, 'Current password is incorrect', 400);
       }
 
-      // Update password
       await Admin.changePassword(adminId, new_password);
-
       return ApiResponse.success(res, null, 'Password changed successfully');
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
     }
   }
 
-  // Get dashboard statistics
+  // Get dashboard statistics (Updated to match new UI layout)
   static async getDashboard(req, res) {
     try {
       const stats = await Admin.getDashboardStats();
       return ApiResponse.success(res, stats, 'Dashboard data retrieved successfully');
+    } catch (error) {
+      return ApiResponse.error(res, error.message, 500);
+    }
+  }
+
+  // Comprehensive dashboard (Powers the revamped React Dashboard)
+  static async getDashboardComprehensive(req, res) {
+    try {
+      const { period = '30d' } = req.query;
+      const data = await Admin.getComprehensiveDashboard(period);
+      return ApiResponse.success(res, data, 'Comprehensive dashboard data retrieved successfully');
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
     }
@@ -105,11 +106,7 @@ class AdminController {
     try {
       const { period = 'monthly' } = req.query;
       const analytics = await Admin.getRevenueAnalytics(period);
-
-      return ApiResponse.success(res, {
-        period,
-        analytics
-      }, 'Revenue analytics retrieved successfully');
+      return ApiResponse.success(res, { period, analytics }, 'Revenue analytics retrieved');
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
     }
@@ -120,37 +117,7 @@ class AdminController {
     try {
       const { limit = 50 } = req.query;
       const customers = await Admin.getOutstandingCustomers(parseInt(limit));
-
-      return ApiResponse.success(res, {
-        customers,
-        count: customers.length
-      }, 'Outstanding customers retrieved successfully');
-    } catch (error) {
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
-
-  // Get system overview
-  static async getSystemOverview(req, res) {
-    try {
-      const [
-        dashboardStats,
-        customerStats,
-        recentPayments,
-        overdueBills
-      ] = await Promise.all([
-        Admin.getDashboardStats(),
-        Customer.getCustomerStats(),
-        Payment.getPaymentsWithPagination(1, 10, { status: 'completed' }),
-        Bill.getOverdueBills(10)
-      ]);
-
-      return ApiResponse.success(res, {
-        dashboard: dashboardStats,
-        customers: customerStats,
-        recent_payments: recentPayments.payments,
-        overdue_bills: overdueBills
-      }, 'System overview retrieved successfully');
+      return ApiResponse.success(res, { customers, count: customers.length }, 'Outstanding customers retrieved');
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
     }
@@ -160,12 +127,7 @@ class AdminController {
   static async getFinancialSummary(req, res) {
     try {
       const { period = 'monthly' } = req.query;
-      
-      const [
-        revenueAnalytics,
-        paymentStats,
-        billingStats
-      ] = await Promise.all([
+      const [revenueAnalytics, paymentStats, billingStats] = await Promise.all([
         Admin.getRevenueAnalytics(period),
         Payment.getPaymentStats(period),
         Bill.getBillingStats(period)
@@ -182,7 +144,7 @@ class AdminController {
           average_success_rate: paymentStats.length > 0 ? 
             (paymentStats.reduce((sum, item) => sum + parseFloat(item.success_rate), 0) / paymentStats.length).toFixed(2) : 0
         }
-      }, 'Financial summary retrieved successfully');
+      }, 'Financial summary retrieved');
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
     }
@@ -192,22 +154,15 @@ class AdminController {
   static async exportCustomers(req, res) {
     try {
       const { format = 'json', status } = req.query;
-      
       const filters = {};
       if (status) filters.is_active = status === 'active';
 
       const customers = await Customer.findAll(filters, { orderBy: 'created_at DESC' });
-
-      // Add balance information to each customer
       const customersWithBalance = await Promise.all(
-        customers.map(async (customer) => {
-          const customerWithBalance = await Customer.getCustomerWithBalance(customer.id);
-          return customerWithBalance;
-        })
+        customers.map(async (customer) => await Customer.getCustomerWithBalance(customer.id))
       );
 
       if (format === 'csv') {
-        // Convert to CSV format
         const csv = [
           'Account Number,Name,Phone,Email,Location,Connection Date,Status,Outstanding Bills,Outstanding Fines,Outstanding Contributions,Total Balance',
           ...customersWithBalance.map(c => 
@@ -224,28 +179,21 @@ class AdminController {
         customers: customersWithBalance,
         count: customersWithBalance.length,
         exported_at: new Date().toISOString()
-      }, 'Customer data exported successfully');
+      }, 'Customer data exported');
     } catch (error) {
       return ApiResponse.error(res, error.message, 500);
     }
   }
 
-// REAL SYSTEM HEALTH CHECK
+  // System Health Check
   static async getSystemHealth(req, res) {
     try {
       const health = {
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        checks: {
-          database: 'healthy',
-          payment_gateway: 'active',
-          api_services: 'running',
-          backup: 'scheduled'
-        },
-        statistics: {}
+        checks: { database: 'healthy', payment_gateway: 'active', api_services: 'running', backup: 'scheduled' }
       };
 
-      // 1. Check DB Connection
       try {
         await executeQuery('SELECT 1');
       } catch (e) {
@@ -253,12 +201,11 @@ class AdminController {
         health.status = 'critical';
       }
 
-      // 2. Check Payment Gateway Health (Look for recent failures)
       const failures = await executeQuery(`
         SELECT COUNT(*) as count FROM payment_logs 
         WHERE status = 'failed' AND timestamp > DATE_SUB(NOW(), INTERVAL 1 HOUR)
       `);
-      if (failures[0].count > 5) {
+      if (failures[0] && failures[0].count > 5) {
         health.checks.payment_gateway = 'degraded';
         health.status = 'warning';
       }
@@ -269,7 +216,7 @@ class AdminController {
     }
   }
 
-  // REAL ACTIVITY LOG
+  // Activity Log
   static async getActivityLog(req, res) {
     try {
       const query = `
@@ -289,7 +236,6 @@ class AdminController {
       return ApiResponse.error(res, error.message, 500);
     }
   }
-
 }
 
 module.exports = AdminController;

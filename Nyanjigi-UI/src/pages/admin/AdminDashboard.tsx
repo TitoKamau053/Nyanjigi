@@ -1,534 +1,562 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Users, 
-  DollarSign, 
-  FileText, 
-  TrendingUp,
-  CheckCircle
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Wallet, AlertCircle, TrendingUp, Users,
+  ArrowUpRight, ArrowDownRight, Minus,
+  Trophy, AlertTriangle, Receipt
 } from 'lucide-react';
-import { Line } from 'react-chartjs-2';
-import 'chart.js/auto';
-
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell
+} from 'recharts';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
+// ---------------------------------------------------------------------------
+// Types — mirror the GET /api/v1/admin/dashboard-comprehensive response
+// ---------------------------------------------------------------------------
+
+interface RevenueTrendPoint {
+  period: string;
+  label: string;
+  totalAmount: number;
+  transactionCount: number;
+}
+
+interface DistributionSlice {
+  amount: number;
+  percent: number;
+}
+
+interface TopPerformer {
+  id: number;
+  accountNumber: string;
+  name: string;
+  zone: string;
+  paymentCount: number;
+  totalPaid: number;
+}
+
+interface PoorPerformer {
+  id: number;
+  accountNumber: string;
+  name: string;
+  zone: string;
+  outstandingBills: number;
+  outstandingFines: number;
+  outstandingContributions: number;
+  totalDebt: number;
+}
+
+interface RecentTransaction {
+  id: string;
+  transactionId: string;
+  customer: string;
+  account: string;
+  amount: number;
+  method: string;
+  status: string;
+  date: string;
+}
+
+interface ComprehensiveDashboardData {
+  metrics: {
+    totalRevenue: number;
+    revenueGrowth: number | null;
+    revenueGrowthLabel: string | null;
+    outstandingBills: number;
+    pendingContributions: number;
+    activeCustomers: number;
+  };
+  systemHealth: {
+    collectionRate: number | null;
+    totalOutstanding: number;
+    totalBilled: number;
+    totalCollected: number;
+  };
+  trendWindow: {
+    anchorDate: string;
+    isCurrent: boolean;
+  };
+  revenueTrend: RevenueTrendPoint[];
+  distribution: {
+    bills: DistributionSlice;
+    contributions: DistributionSlice;
+    fines: DistributionSlice;
+    advance: DistributionSlice;
+  };
+  topPerformers: TopPerformer[];
+  poorPerformers: PoorPerformer[];
+  recentTransactions: RecentTransaction[];
+}
+
+type Period = '7d' | '30d' | '90d' | 'yearly';
+
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
+
+const formatCurrency = (amount: number) =>
+  `KES ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+const formatCurrencyCompact = (amount: number) => {
+  if (amount >= 1_000_000) return `KES ${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `KES ${(amount / 1_000).toFixed(1)}K`;
+  return `KES ${amount.toFixed(0)}`;
+};
+
+const formatDate = (dateStr: string) =>
+  new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// Distribution slice colors — sky blue leads as the brand accent, with
+// supporting hues that stay readable against it
+const DISTRIBUTION_COLORS = {
+  bills: '#0284c7',         // sky-600 — primary accent, matches brand
+  contributions: '#0d9488', // teal-600
+  fines: '#f59e0b',         // amber-500
+  advance: '#cbd5e1'        // slate-300
+};
+
+const STATUS_BADGE_STYLES: Record<string, string> = {
+  completed: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  pending: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+  failed: 'bg-red-50 text-red-700 ring-red-600/20',
+  reversed: 'bg-slate-100 text-slate-600 ring-slate-500/20'
+};
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 const AdminDashboard: React.FC = () => {
-  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [data, setData] = useState<ComprehensiveDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d'>('30d');
-  const [chartData, setChartData] = useState<any>(null);
-
-  // Real-time data states
-  const [systemHealth, setSystemHealth] = useState<any>(null);
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
-
+  const [period, setPeriod] = useState<Period>('30d');
   const { addToast } = useToast();
 
-const generateFallbackChartData = useCallback(async () => {
-  try {
-    console.log('Generating chart data for timeRange:', timeRange);
-
-    // Get real data from working endpoints
-    const [dashboardResponse, billsResponse, paymentsResponse] = await Promise.all([
-      adminService.getDashboard(),
-      adminService.getBills({ limit: 1000 }),
-      adminService.getPayments({ limit: 1000 })
-    ]);
-
-    const dashboardData = dashboardResponse.data.data || dashboardResponse.data;
-    const billsData = billsResponse.data.data || billsResponse.data;
-    const paymentsData = paymentsResponse.data.data || paymentsResponse.data;
-    const bills = billsData.bills || [];
-    const payments = paymentsData.payments || [];
-
-    console.log('Dashboard data:', dashboardData);
-    console.log('Bills data:', billsData);
-    console.log('Payments data:', paymentsData);
-    console.log('Number of bills:', bills.length);
-    console.log('Number of payments:', payments.length);
-
-    // Generate revenue data based on time range
-    const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90;
-    const labels: string[] = [];
-    const values: number[] = [];
-
-    // Group payments by time period (use payments as revenue, not bills)
-    const revenueByPeriod = new Map();
-    
-    for (let i = days - 1; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      
-      let periodKey;
-      if (timeRange === '7d') {
-        periodKey = date.toLocaleDateString('en-US', { weekday: 'short' });
-      } else if (timeRange === '30d') {
-        periodKey = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      } else {
-        periodKey = date.toLocaleDateString('en-US', { month: 'short' });
-      }
-      
-      if (!labels.includes(periodKey)) {
-        labels.push(periodKey);
-      }
-      revenueByPeriod.set(periodKey, 0);
-    }
-
-    // Process payments and group by time period
-    payments.forEach((payment: any) => {
-      if (payment.status === 'completed') {
-        const paymentDate = new Date(payment.payment_date || payment.created_at);
-        const paymentAmount = parseFloat(payment.amount || 0); // ← This parseFloat is critical!
-        
-        let periodKey;
-        if (timeRange === '7d') {
-          periodKey = paymentDate.toLocaleDateString('en-US', { weekday: 'short' });
-        } else if (timeRange === '30d') {
-          periodKey = paymentDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        } else {
-          periodKey = paymentDate.toLocaleDateString('en-US', { month: 'short' });
-        }
-        
-        if (revenueByPeriod.has(periodKey)) {
-          const currentAmount = revenueByPeriod.get(periodKey);
-          revenueByPeriod.set(periodKey, currentAmount + paymentAmount); // ← Addition, not concatenation
-        }
-      }
-    });
-
-    // Generate values array
-    labels.forEach(label => {
-      const revenue = revenueByPeriod.get(label) || 0;
-      values.push(Math.round(revenue));
-    });
-
-    console.log('Generated labels:', labels);
-    console.log('Generated values:', values);
-
-    // Calculate payment method distribution from actual payments
-    const paymentMethods = {
-      'Equity M-Pesa': 0,
-      'Equity Branch': 0,
-      'Equity Agent': 0,
-      'Other': 0
-    };
-
-    payments.forEach((payment: any) => {
-      if (payment.status === 'completed') {
-        const method = payment.payment_method || '';
-        if (method.includes('mpesa')) {
-          paymentMethods['Equity M-Pesa']++;
-        } else if (method.includes('branch')) {
-          paymentMethods['Equity Branch']++;
-        } else if (method.includes('agent')) {
-          paymentMethods['Equity Agent']++;
-        } else {
-          paymentMethods['Other']++;
-        }
-      }
-    });
-
-    const totalPayments = Object.values(paymentMethods).reduce((sum, count) => sum + count, 0);
-    const paymentMethodData = totalPayments > 0 
-      ? Object.values(paymentMethods).map(count => Math.round((count / totalPayments) * 100))
-      : [68, 18, 14, 0];
-
-    return {
-      revenue: { labels, data: values },
-      financial: {
-        paymentMethods: {
-          labels: ['Equity M-Pesa', 'Equity Branch', 'Equity Agent', 'Other'],
-          data: paymentMethodData
-        }
-      }
-    };
-  } catch (error) {
-    console.error('Chart data generation error:', error);
-    // Return basic sample data
-    // const sampleData = {
-    //   revenue: {
-    //     labels: timeRange === '7d'
-    //       ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    //       : timeRange === '30d'
-    //       ? ['Week 1', 'Week 2', 'Week 3', 'Week 4']
-    //       : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-    //     data: timeRange === '7d'
-    //       ? [45000, 52000, 48000, 61000, 55000, 67000, 43000]
-    //       : timeRange === '30d'
-    //       ? [180000, 195000, 210000, 225000]
-    //       : [95000, 98000, 105000, 110000, 120000, 125000]
-    //   },
-    //   financial: {
-    //     paymentMethods: {
-    //       labels: ['Equity M-Pesa', 'Equity Branch', 'Equity Agent', 'Other'],
-    //       data: [68, 18, 14, 0]
-    //     }
-    //   }
-    // };
-
-    // console.log('Using basic sample data:', sampleData);
-    // return sampleData;
-  }
-}, [timeRange]);
-
-const fetchDashboardData = useCallback(async () => {
-  try {
-    // Fetch dashboard data, bills, and payments
-    const [dashboardResponse, billsResponse, paymentsResponse] = await Promise.all([
-      adminService.getDashboard(),
-      adminService.getBills({ limit: 1000 }),
-      adminService.getPayments({ limit: 1000 })
-    ]);
-
-    const dashboardApiData = dashboardResponse.data.data || dashboardResponse.data;
-    const billsApiData = billsResponse.data.data || billsResponse.data;
-    const paymentsApiData = paymentsResponse.data.data || paymentsResponse.data;
-    
-    const bills = billsApiData.bills || [];
-    const payments = paymentsApiData.payments || [];
-
-    // Calculate total revenue from payments (actual money received)
-    const totalRevenue = payments
-      .filter((p: any) => p.status === 'completed')
-      .reduce((sum: number, payment: any) => {
-        const amount = parseFloat(payment.amount || 0);
-        return sum + amount;
-      }, 0);
-
-    // Calculate bill statistics
-    const pendingBills = bills.filter((bill: any) => 
-      bill.status === 'pending' || bill.status === 'overdue'
-    ).length;
-    
-    const paidBills = bills.filter((bill: any) => bill.status === 'paid').length;
-    const totalBills = bills.length;
-    
-    // Payment success rate = (paid bills / total bills) * 100
-    const paymentSuccess = totalBills > 0 
-      ? Math.round((paidBills / totalBills) * 100) 
-      : 0;
-
-    setDashboardData({
-      totalCustomers: dashboardApiData.total_customers ?? dashboardApiData.totalCustomers ?? 0,
-      totalRevenue: totalRevenue,
-      pendingBills: pendingBills,
-      paymentSuccess: paymentSuccess,
-    });
-  } catch (error) {
-    addToast('Failed to fetch dashboard data', 'error');
-  } finally {
-    setLoading(false);
-  }
-}, [addToast]);
-
-  const fetchChartData = useCallback(async () => {
-    try {
-      setLoading(true);
-
-      // Try to fetch from backend first
-      try {
-        const [revenueResponse, financialResponse] = await Promise.all([
-          adminService.getRevenueAnalytics(timeRange),
-          adminService.getFinancialSummary(timeRange)
-        ]);
-
-        const revenueApiData = revenueResponse.data.data || revenueResponse.data;
-        const financialData = financialResponse.data.data || financialResponse.data;
-
-        // Debug logging to understand data structure
-        console.log('Revenue API Response:', revenueResponse.data);
-        console.log('Revenue Data:', revenueApiData);
-        console.log('Financial API Response:', financialResponse.data);
-        console.log('Financial Data:', financialData);
-
-        setChartData({
-          revenue: revenueApiData,
-          financial: financialData
-        });
-        return; // If successful, exit early
-      } catch (apiError) {
-        console.warn('Backend API not available, using fallback data:', apiError);
-      }
-
-      // Fallback: Generate sample data based on existing bills and customers
-      const fallbackData = await generateFallbackChartData();
-      setChartData(fallbackData);
-
-    } catch (error) {
-      console.error('Chart data fetch error:', error);
-      addToast('Using sample data - backend not available', 'warning');
-
-      // Final fallback: Generate sample data
-      const fallbackData = await generateFallbackChartData();
-      setChartData(fallbackData);
-    } finally {
-      setLoading(false);
-    }
-  }, [timeRange, addToast, generateFallbackChartData]);
-
-  // Fetch Real-time System Health and Activity
-const fetchRealtimeData = useCallback(async () => {
-    try {
-        const [healthRes, activityRes] = await Promise.all([
-            adminService.getSystemHealth(),
-            adminService.getActivityLog()
-        ]);
-        
-        setSystemHealth(healthRes.data.data || healthRes.data);
-        setRecentActivity(activityRes.data.data?.activities || activityRes.data?.activities || []);
-    } catch (error) {
-        console.error("Failed to fetch realtime data", error);
-    }
-  }, []);
-
   useEffect(() => {
-    setLoading(true);
-    Promise.all([fetchDashboardData(), fetchChartData(), fetchRealtimeData()])
-      .finally(() => setLoading(false));
-  }, [fetchDashboardData, fetchChartData, fetchRealtimeData]);
+    let isMounted = true;
 
-  const statsCards = [
-    { title: 'Total Customers', value: dashboardData?.totalCustomers?.toLocaleString() ?? '0', icon: Users, color: 'blue', change: '+8.2%', changeType: 'increase' },
-    { title: 'Monthly Revenue', value: `KES ${((dashboardData?.totalRevenue ?? 0) / 1000).toFixed(0)}K`, icon: DollarSign, color: 'green', change: '+15.3%', changeType: 'increase' },
-    { title: 'Pending Bills', value: dashboardData?.pendingBills?.toString() ?? '0', icon: FileText, color: 'yellow', change: '-2.1%', changeType: 'decrease' },
-    { title: 'Payment Success', value: `${dashboardData?.paymentSuccess ?? 0}%`, icon: TrendingUp, color: 'cyan', change: '+1.2%', changeType: 'increase' }
-  ];
-
-  // Create chart data from the fetched/generated data
-  const getChartData = () => {
-    if (!chartData?.revenue) {
-      return {
-        labels: timeRange === '7d'
-          ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-          : timeRange === '30d'
-          ? ['Week 1', 'Week 2', 'Week 3', 'Week 4']
-          : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-        datasets: [
-          {
-            label: 'Revenue (KES)',
-            data: timeRange === '7d'
-              ? [45000, 52000, 48000, 61000, 55000, 67000, 43000]
-              : timeRange === '30d'
-              ? [180000, 195000, 210000, 225000]
-              : [95000, 98000, 105000, 110000, 120000, 125000],
-            borderColor: '#0EA5E9',
-            backgroundColor: 'rgba(14, 165, 233, 0.1)',
-            fill: true,
-            tension: 0.4,
-          },
-        ],
-      };
-    }
-
-    const revenueData = chartData.revenue.data || [];
-
-    return {
-      labels: chartData.revenue.labels || ['No Data'],
-      datasets: [
-        {
-          label: 'Revenue (KES)',
-          data: revenueData.length > 0 ? revenueData : [0],
-          borderColor: '#0EA5E9',
-          backgroundColor: 'rgba(14, 165, 233, 0.1)',
-          fill: true,
-          tension: 0.4,
-          pointBackgroundColor: '#0EA5E9',
-          pointBorderColor: '#ffffff',
-          pointBorderWidth: 2,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-        },
-      ],
-    };
-  };
-
-  const revenueData = getChartData();
-
-  const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top' as const,
-        labels: {
-          usePointStyle: true,
-          padding: 20,
-        },
-      },
-      tooltip: {
-        mode: 'index' as const,
-        intersect: false,
-        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-        titleColor: '#ffffff',
-        bodyColor: '#ffffff',
-        borderColor: '#0EA5E9',
-        borderWidth: 1,
-        callbacks: {
-          label: function(context: any) {
-            const value = context.parsed.y;
-            return `Revenue: KES ${value.toLocaleString()}`;
-          }
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const response = await adminService.getDashboardComprehensive(period);
+        if (isMounted && response.data?.success) {
+          setData(response.data.data);
         }
-      },
-    },
-    scales: {
-      x: {
-        grid: {
-          display: false,
-        },
-        ticks: {
-          color: '#64748b',
-          font: {
-            size: 12,
-          },
-        },
-      },
-      y: {
-        beginAtZero: true,
-        grid: {
-          color: 'rgba(148, 163, 184, 0.1)',
-        },
-        ticks: {
-          color: '#64748b',
-          font: {
-            size: 12,
-          },
-          callback: function(value: any) {
-            return `KES ${value.toLocaleString()}`;
-          }
-        },
-      },
-    },
-    interaction: {
-      mode: 'nearest' as const,
-      axis: 'x' as const,
-      intersect: false,
-    },
-  };
+      } catch (err) {
+        if (isMounted) addToast('Failed to load dashboard metrics', 'error');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
 
-  const getStatusColor = (status: string) => {
-    if (status === 'healthy' || status === 'active' || status === 'running') return 'text-green-600';
-    if (status === 'warning' || status === 'degraded') return 'text-yellow-600';
-    return 'text-red-600';
-  };
+    fetchData();
+    return () => { isMounted = false; };
+  }, [period, addToast]);
+
+  const distributionChartData = useMemo(() => {
+    if (!data) return [];
+    const { distribution } = data;
+    return [
+      { name: 'Bills', value: distribution.bills.amount, percent: distribution.bills.percent, color: DISTRIBUTION_COLORS.bills },
+      { name: 'Contributions', value: distribution.contributions.amount, percent: distribution.contributions.percent, color: DISTRIBUTION_COLORS.contributions },
+      { name: 'Fines', value: distribution.fines.amount, percent: distribution.fines.percent, color: DISTRIBUTION_COLORS.fines },
+      { name: 'Advance', value: distribution.advance.amount, percent: distribution.advance.percent, color: DISTRIBUTION_COLORS.advance }
+    ].filter(slice => slice.value > 0);
+  }, [data]);
+
+  if (loading) return <DashboardSkeleton />;
+  if (!data) return <DashboardEmptyState />;
+
+  const { metrics, systemHealth, trendWindow, revenueTrend, topPerformers, poorPerformers, recentTransactions } = data;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
+    <div className="space-y-6 pb-8">
+      {/* Header / period selector */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-blue-900">Dashboard Overview</h1>
-          <p className="text-blue-700">Monitor your water management system performance</p>
+          <h1 className="text-lg font-semibold text-slate-900">Dashboard</h1>
+          <p className="text-sm text-slate-500">Overview of collections, balances, and recent activity</p>
         </div>
-
-        <div className="flex space-x-2">
-          {(['7d', '30d', '90d'] as const).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                timeRange === range
-                  ? 'bg-blue-600 text-white shadow-lg'
-                  : 'bg-white/50 text-blue-700 hover:bg-white/70 backdrop-blur-sm'
-              }`}
-            >
-              {range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : '90 Days'}
-            </button>
-          ))}
-        </div>
+        <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {statsCards.map((card: any) => (
-          <div key={card.title} className="backdrop-blur-xl bg-white/20 rounded-2xl p-6 border border-white/30 hover:bg-white/30 transition-all duration-300 shadow-lg hover:shadow-xl">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-blue-700 mb-1">{card.title}</p>
-                <p className="text-2xl font-bold text-blue-900">{card.value}</p>
-                <div className="flex items-center mt-2">
-                  <span className={`text-xs font-medium ${
-                    card.changeType === 'increase' ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {card.change}
-                  </span>
-                  <span className="text-xs text-blue-600 ml-1">vs last month</span>
-                </div>
-              </div>
-              <div className={`p-3 rounded-xl bg-${card.color}-500/20`}>
-                <card.icon className={`h-6 w-6 text-${card.color}-600`} />
-              </div>
-            </div>
-          </div>
-        ))}
+      {/* KPI Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard
+          title="Total Revenue"
+          value={formatCurrency(metrics.totalRevenue)}
+          icon={<Wallet className="w-4 h-4" />}
+          trend={metrics.revenueGrowth}
+          trendLabel={metrics.revenueGrowthLabel}
+          tooltip="Completed payments collected so far this calendar month"
+        />
+        <KPICard
+          title="Outstanding Bills"
+          value={formatCurrency(metrics.outstandingBills)}
+          icon={<AlertCircle className="w-4 h-4" />}
+          tooltip="Sum of unpaid, overdue, and partially-paid bills across all customers"
+        />
+        <KPICard
+          title="Pending Contributions"
+          value={formatCurrency(metrics.pendingContributions)}
+          icon={<TrendingUp className="w-4 h-4" />}
+          tooltip="Required contribution amounts not yet fully paid"
+        />
+        <KPICard
+          title="Active Customers"
+          value={metrics.activeCustomers.toLocaleString()}
+          icon={<Users className="w-4 h-4" />}
+          tooltip="Customers currently marked active on the network"
+        />
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 gap-6">
-        {/* Revenue Chart */}
-        <div className="backdrop-blur-xl bg-white/20 rounded-2xl p-6 border border-white/30">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-blue-900">Revenue Trend</h3>
-            <div className="flex items-center space-x-2">
-              <TrendingUp className="h-5 w-5 text-green-600" />
-              <span className="text-sm font-medium text-green-600">+12.5%</span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Revenue Trend</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {trendWindow.isCurrent
+                  ? 'Completed payments over time'
+                  : `Showing most recent activity, ending ${new Date(trendWindow.anchorDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+              </p>
             </div>
+            {systemHealth.collectionRate !== null && (
+              <div
+                className="text-right bg-sky-50 rounded-lg px-3 py-1.5"
+                title="Total collected divided by total billed, across all-time records"
+              >
+                <p className="text-[10px] uppercase tracking-wide text-sky-600/80">Collection rate</p>
+                <p className="text-sm font-semibold text-sky-700">{systemHealth.collectionRate}%</p>
+              </div>
+            )}
           </div>
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-            </div>
-          ) : (
-            <div className="h-80">
-              <Line data={revenueData} options={chartOptions} />
-            </div>
-          )}
+          <div className="h-64">
+            {revenueTrend.length === 0 ? (
+              <EmptyChartState message="No completed payments recorded yet" />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={revenueTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#0284c7" stopOpacity={0.22} />
+                      <stop offset="100%" stopColor="#0284c7" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e0f2fe" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    axisLine={{ stroke: '#e0f2fe' }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tickFormatter={formatCurrencyCompact}
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={64}
+                  />
+                  <Tooltip
+                    formatter={(value) => [formatCurrency(Number(value) || 0), 'Revenue']}
+                    contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e0f2fe', boxShadow: '0 4px 12px -2px rgba(2,132,199,0.12)' }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="totalAmount"
+                    stroke="#0284c7"
+                    strokeWidth={2.5}
+                    fill="url(#revenueFill)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Distribution donut */}
+        <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-slate-900 mb-1">Payment Distribution</h2>
+          <p className="text-xs text-slate-500 mb-4">Where collected funds were allocated</p>
+          <div className="h-44 relative">
+            {distributionChartData.length === 0 ? (
+              <EmptyChartState message="No allocations recorded yet" />
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={distributionChartData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={48}
+                      outerRadius={70}
+                      paddingAngle={2}
+                      strokeWidth={0}
+                    >
+                      {distributionChartData.map((slice) => (
+                        <Cell key={slice.name} fill={slice.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value, name) => [formatCurrency(Number(value) || 0), String(name)]}
+                      contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e0f2fe', boxShadow: '0 4px 12px -2px rgba(2,132,199,0.12)' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="text-center">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-400">Total</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {formatCurrencyCompact(distributionChartData.reduce((s, d) => s + d.value, 0))}
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="mt-4 space-y-2">
+            {distributionChartData.map((slice) => (
+              <div key={slice.name} className="flex items-center justify-between text-xs">
+                <span className="flex items-center gap-2 text-slate-600">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: slice.color }} />
+                  {slice.name}
+                </span>
+                <span className="text-slate-900 font-medium">{slice.percent}%</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
+      {/* Performers Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <PerformersCard
+          title="Top Performers"
+          subtitle="Highest cumulative payments received"
+          icon={<Trophy className="w-4 h-4 text-emerald-600" />}
+          emptyMessage="No completed payments to rank yet"
+        >
+          {topPerformers.map((p, idx) => (
+            <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-sky-50/40 transition-colors">
+              <td className="py-3 pl-1 pr-2 text-xs font-semibold text-sky-600/70 w-6">{idx + 1}</td>
+              <td className="py-3 pr-3">
+                <p className="text-sm font-medium text-slate-900 truncate max-w-[180px]" title={p.name}>{p.name}</p>
+                <p className="text-xs text-slate-500">{p.accountNumber} · {p.zone}</p>
+              </td>
+              <td className="py-3 pr-1 text-right">
+                <p className="text-sm font-semibold text-slate-900">{formatCurrency(p.totalPaid)}</p>
+                <p className="text-xs text-slate-500">{p.paymentCount} payment{p.paymentCount !== 1 ? 's' : ''}</p>
+              </td>
+            </tr>
+          ))}
+        </PerformersCard>
 
-      {/* System Health & Recent Activity  */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        
-        {/* System Health */}
-        <div className="backdrop-blur-xl bg-white/20 rounded-2xl p-6 border border-white/30">
-          <h3 className="text-xl font-semibold text-blue-900 mb-6">System Health</h3>
-          <div className="space-y-4">
-            {systemHealth && systemHealth.checks ? Object.entries(systemHealth.checks).map(([key, status]: [string, any]) => (
-                <div key={key} className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                        <CheckCircle className={`h-5 w-5 ${getStatusColor(status)}`} />
-                        <span className="text-blue-700 capitalize">{key.replace('_', ' ')}</span>
-                    </div>
-                    <span className={`text-sm font-medium capitalize ${getStatusColor(status)}`}>{status}</span>
-                </div>
-            )) : <p>Loading health data...</p>}
+        <PerformersCard
+          title="Poor Performers"
+          subtitle="Highest outstanding balances"
+          icon={<AlertTriangle className="w-4 h-4 text-red-600" />}
+          emptyMessage="No outstanding balances — collections are current"
+        >
+          {poorPerformers.map((p, idx) => (
+            <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-sky-50/40 transition-colors">
+              <td className="py-3 pl-1 pr-2 text-xs font-semibold text-sky-600/70 w-6">{idx + 1}</td>
+              <td className="py-3 pr-3">
+                <p className="text-sm font-medium text-slate-900 truncate max-w-[180px]" title={p.name}>{p.name}</p>
+                <p className="text-xs text-slate-500">{p.accountNumber} · {p.zone}</p>
+              </td>
+              <td className="py-3 pr-1 text-right">
+                <p className="text-sm font-semibold text-red-600">{formatCurrency(p.totalDebt)}</p>
+                <p className="text-xs text-slate-500" title="Bills + fines + contributions owed">
+                  Bills {formatCurrencyCompact(p.outstandingBills)}
+                </p>
+              </td>
+            </tr>
+          ))}
+        </PerformersCard>
+      </div>
+
+      {/* Recent Transactions */}
+      <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2.5 px-5 py-4 border-b border-slate-100">
+          <div className="p-1.5 bg-sky-50 rounded-lg text-sky-600">
+            <Receipt className="w-4 h-4" />
           </div>
+          <h2 className="text-sm font-semibold text-slate-900">Recent System Transactions</h2>
         </div>
-
-        {/* Recent Activity */}
-        <div className="backdrop-blur-xl bg-white/20 rounded-2xl p-6 border border-white/30">
-          <h3 className="text-xl font-semibold text-blue-900 mb-6">Recent Activity</h3>
-          <div className="space-y-4">
-             {recentActivity.length > 0 ? recentActivity.map((activity, idx) => (
-                 <div key={idx} className="flex items-start space-x-3">
-                    <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-${activity.color || 'blue'}-500`}></div>
-                    <div className="flex-1">
-                        <p className="text-sm text-blue-900 font-medium">{activity.title}</p>
-                        <p className="text-xs text-blue-600">
-                           {activity.subtitle} • {new Date(activity.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                        </p>
-                    </div>
-                 </div>
-             )) : <p className="text-gray-500">No recent activity.</p>}
+        {recentTransactions.length === 0 ? (
+          <div className="py-10 text-center text-sm text-slate-500">No transactions recorded yet</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-sky-50/50 border-b border-slate-100">
+                <tr>
+                  <th className="px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500">Customer</th>
+                  <th className="px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500">Account</th>
+                  <th className="px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500">Method</th>
+                  <th className="px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500">Date</th>
+                  <th className="px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500 text-right">Amount</th>
+                  <th className="px-5 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {recentTransactions.map((t) => (
+                  <tr key={t.id} className="hover:bg-sky-50/40 transition-colors">
+                    <td className="px-5 py-3 text-sm font-medium text-slate-900">{t.customer}</td>
+                    <td className="px-5 py-3 text-sm text-slate-500">{t.account}</td>
+                    <td className="px-5 py-3 text-sm text-slate-500 capitalize">{t.method.replace(/_/g, ' ')}</td>
+                    <td className="px-5 py-3 text-sm text-slate-500">{formatDate(t.date)}</td>
+                    <td className="px-5 py-3 text-sm text-slate-900 text-right font-medium">{formatCurrency(t.amount)}</td>
+                    <td className="px-5 py-3 text-right">
+                      <StatusBadge status={t.status} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </div>
-
+        )}
       </div>
     </div>
   );
 };
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+const PeriodSelector: React.FC<{ value: Period; onChange: (p: Period) => void }> = ({ value, onChange }) => {
+  const options: { value: Period; label: string }[] = [
+    { value: '7d', label: '7D' },
+    { value: '30d', label: '30D' },
+    { value: '90d', label: '90D' },
+    { value: 'yearly', label: '1Y' }
+  ];
+  return (
+    <div className="inline-flex rounded-lg border border-slate-200/80 bg-white p-0.5 shadow-sm">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+            value === opt.value
+              ? 'bg-sky-600 text-white shadow-sm'
+              : 'text-slate-500 hover:text-sky-700 hover:bg-sky-50'
+          }`}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+const KPICard: React.FC<{
+  title: string;
+  value: string;
+  icon: React.ReactNode;
+  trend?: number | null;
+  trendLabel?: string | null;
+  tooltip?: string;
+}> = ({ title, value, icon, trend, trendLabel, tooltip }) => (
+  <div
+    className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md hover:border-sky-200 transition-all duration-150"
+    title={tooltip}
+  >
+    <div className="flex justify-between items-start mb-3">
+      <div className="p-2 bg-sky-50 rounded-lg text-sky-600">{icon}</div>
+      {trend !== undefined && trend !== null ? (
+        <span
+          className={`flex items-center gap-0.5 text-xs font-medium px-2 py-1 rounded-full ${
+            trend > 0
+              ? 'text-emerald-700 bg-emerald-50'
+              : trend < 0
+              ? 'text-red-700 bg-red-50'
+              : 'text-slate-500 bg-slate-100'
+          }`}
+        >
+          {trend > 0 ? <ArrowUpRight className="w-3 h-3" /> : trend < 0 ? <ArrowDownRight className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+          {Math.abs(trend)}%
+        </span>
+      ) : trendLabel ? (
+        <span className="text-xs font-medium px-2 py-1 rounded-full text-slate-500 bg-slate-100">
+          {trendLabel}
+        </span>
+      ) : null}
+    </div>
+    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide">{title}</h3>
+    <p className="text-xl font-semibold text-slate-900 mt-0.5">{value}</p>
+  </div>
+);
+
+const PerformersCard: React.FC<{
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  emptyMessage: string;
+  children: React.ReactNode;
+}> = ({ title, subtitle, icon, emptyMessage, children }) => {
+  const hasRows = React.Children.count(children) > 0;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+        {icon}
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+      </div>
+      <div className="px-5">
+        {hasRows ? (
+          <table className="w-full">
+            <tbody>{children}</tbody>
+          </table>
+        ) : (
+          <div className="py-8 text-center text-sm text-slate-500">{emptyMessage}</div>
+        )}
+      </div>
+      <div className="h-2" />
+    </div>
+  );
+};
+
+const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
+  <span
+    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset capitalize ${
+      STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.reversed
+    }`}
+  >
+    {status}
+  </span>
+);
+
+const EmptyChartState: React.FC<{ message: string }> = ({ message }) => (
+  <div className="h-full flex items-center justify-center text-sm text-slate-400 border border-dashed border-sky-100 bg-sky-50/30 rounded-lg">
+    {message}
+  </div>
+);
+
+const DashboardSkeleton: React.FC = () => (
+  <div className="space-y-6 animate-pulse">
+    <div className="h-8 w-48 bg-sky-100/70 rounded" />
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {[...Array(4)].map((_, i) => (
+        <div key={i} className="h-28 bg-sky-50/80 rounded-xl border border-sky-100" />
+      ))}
+    </div>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="lg:col-span-2 h-80 bg-sky-50/80 rounded-xl border border-sky-100" />
+      <div className="h-80 bg-sky-50/80 rounded-xl border border-sky-100" />
+    </div>
+  </div>
+);
+
+const DashboardEmptyState: React.FC = () => (
+  <div className="py-16 text-center">
+    <p className="text-sm text-slate-500">Couldn't load dashboard data. Try refreshing the page.</p>
+  </div>
+);
 
 export default AdminDashboard;
