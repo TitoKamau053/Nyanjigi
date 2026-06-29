@@ -7,7 +7,8 @@ import {
   Search,
   X,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  MessageSquare
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
@@ -33,6 +34,39 @@ interface NotificationResult {
   notification_type: string;
   timestamp: string;
 }
+
+interface NotificationMetadata {
+  customer_name?: string;
+  account_number?: string;
+  amount?: string;
+  due_date?: string;
+  bill_number?: string;
+  transaction_id?: string;
+  message?: string;
+}
+
+interface NotificationPayload {
+  sms?: {
+    success: boolean;
+    cost?: string;
+    error?: string;
+    status?: string;
+    message_id?: string;
+  };
+}
+
+interface NotificationHistoryRecord {
+  id: number;
+  recipient: string;
+  notification_type: string;
+  message: string;
+  status: 'sent' | 'failed' | string;
+  sent_at: string;
+  metadata: NotificationMetadata;
+  payload: NotificationPayload;
+}
+
+
 const AUTO_GENERATED_MESSAGES = {
   bill: 'Dear {customer_name}, your total outstanding water bill for account {account_number} is {total_bill}. Please pay at your earliest convenience. Thank you.',
   
@@ -73,6 +107,16 @@ const NotificationManagement: React.FC = () => {
   const [showResults, setShowResults] = useState(false);
   const [sendResults, setSendResults] = useState<NotificationResult | null>(null);
 
+// History State
+  const [history, setHistory] = useState<NotificationHistoryRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotalPages, setHistoryTotalPages] = useState(1);
+  const [historyTypeFilter, setHistoryTypeFilter] = useState('');
+  
+  // Interactive View State
+  const [selectedNotification, setSelectedNotification] = useState<NotificationHistoryRecord | null>(null);
+
   useEffect(() => {
     fetchCustomers();
   }, []);
@@ -103,6 +147,39 @@ const NotificationManagement: React.FC = () => {
       setLoading(false);
     }
   };
+
+const fetchHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      const params: any = { page: historyPage, limit: 15 };
+      if (historyTypeFilter) params.notification_type = historyTypeFilter;
+      
+      const response = await adminService.getNotificationHistory(params);
+      const { notifications, pagination } = response.data?.data || {};
+      
+      setHistory(notifications || []);
+      if (pagination) {
+        setHistoryTotalPages(pagination.total_pages || 1);
+      }
+    } catch (error: any) {
+      addToast(error.response?.data?.message || 'Failed to fetch history', 'error');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchHistory();
+    }
+  }, [activeTab, historyPage, historyTypeFilter]);
+
+  // Fetch history when tab becomes active or dependencies change
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchHistory();
+    }
+  }, [activeTab, historyPage, historyTypeFilter]);
 
   const loadMoreCustomers = async () => {
     if (currentPage < totalPages) {
@@ -622,13 +699,218 @@ const NotificationManagement: React.FC = () => {
       </div>
       )}
 
-      {/* History Tab */}
+{/* History Tab */}
       {activeTab === 'history' && (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Notification History</h2>
-          <div className="text-center py-8 text-gray-500">
-            <AlertCircle className="w-12 h-12 mx-auto mb-2 opacity-20" />
-            <p>Notification history is coming soon</p>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden transition-all">
+          <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50/50">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">Notification Logs</h2>
+              <p className="text-xs text-gray-500 mt-1">View the status of all sent messages</p>
+            </div>
+            
+            {/* History Filter */}
+            <div className="relative">
+              <select
+                value={historyTypeFilter}
+                onChange={(e) => {
+                  setHistoryTypeFilter(e.target.value);
+                  setHistoryPage(1);
+                }}
+                className="appearance-none pl-4 pr-10 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm bg-white text-gray-600 font-medium transition-shadow cursor-pointer hover:bg-gray-50"
+              >
+                <option value="">All Types</option>
+                <option value="manual_sms">Manual SMS</option>
+                <option value="overdue_notice">Overdue Notice</option>
+                <option value="payment_received">Payment Received</option>
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
+              </div>
+            </div>
+          </div>
+
+          {historyLoading ? (
+            <div className="text-center py-16">
+              <div className="animate-spin w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full mx-auto mb-4"></div>
+              <p className="text-sm text-gray-500 font-medium animate-pulse">Loading records...</p>
+            </div>
+          ) : history.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <AlertCircle className="w-12 h-12 mx-auto mb-3 opacity-20" />
+              <p className="text-sm font-medium text-gray-500">No notification history found.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-white border-b border-gray-100 text-gray-400 text-xs uppercase tracking-wider">
+                    <th className="px-6 py-4 font-medium">Date & Time</th>
+                    <th className="px-6 py-4 font-medium">Recipient</th>
+                    <th className="px-6 py-4 font-medium">Type</th>
+                    <th className="px-6 py-4 font-medium">Status</th>
+                    <th className="px-6 py-4 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm divide-y divide-gray-50">
+                  {history.map((record) => (
+                    <tr 
+                      key={record.id} 
+                      onClick={() => setSelectedNotification(record)}
+                      className="hover:bg-blue-50/50 transition-colors cursor-pointer group"
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <p className="text-gray-800 font-medium">
+                          {new Date(record.sent_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {new Date(record.sent_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <p className="text-gray-800 font-medium truncate max-w-[150px]">
+                          {record.metadata?.customer_name || 'Unknown'}
+                        </p>
+                        <p className="text-xs text-gray-500 font-mono mt-0.5">
+                          {record.recipient}
+                        </p>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium capitalize bg-gray-100 text-gray-600">
+                          {record.notification_type.replace('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {record.status === 'sent' ? (
+                          <div className="flex items-center gap-1.5 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md w-max">
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            <span className="text-xs font-semibold">Sent</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-rose-600 bg-rose-50 px-2.5 py-1 rounded-md w-max">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span className="text-xs font-semibold">Failed</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100">
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              
+              {/* History Pagination */}
+              {historyTotalPages > 1 && (
+                <div className="flex justify-between items-center p-4 border-t border-gray-100 bg-gray-50/30">
+                  <button
+                    onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                    disabled={historyPage === 1}
+                    className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 disabled:opacity-40 hover:bg-white hover:shadow-sm transition-all bg-transparent"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm font-medium text-gray-500">
+                    Page {historyPage} of {historyTotalPages}
+                  </span>
+                  <button
+                    onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+                    disabled={historyPage === historyTotalPages}
+                    className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 disabled:opacity-40 hover:bg-white hover:shadow-sm transition-all bg-transparent"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Interactive Details Modal */}
+      {selectedNotification && (
+        <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-opacity duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden transform scale-100 transition-transform duration-200">
+            
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-5 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${selectedNotification.status === 'sent' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                  {selectedNotification.status === 'sent' ? <CheckCircle className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">Message Details</h3>
+                  <p className="text-xs text-gray-500">{new Date(selectedNotification.sent_at).toLocaleString()}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedNotification(null)}
+                className="text-gray-400 hover:text-gray-700 hover:bg-gray-100 p-1.5 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+              
+              {/* Recipient Info Card */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Recipient</p>
+                  <p className="text-sm font-semibold text-gray-800">{selectedNotification.metadata?.customer_name || 'N/A'}</p>
+                  <p className="text-sm text-gray-600 font-mono mt-0.5">{selectedNotification.recipient}</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Account</p>
+                  <p className="text-sm font-semibold text-gray-800">{selectedNotification.metadata?.account_number || 'N/A'}</p>
+                  <p className="text-sm text-gray-600 capitalize mt-0.5">{selectedNotification.notification_type.replace('_', ' ')}</p>
+                </div>
+              </div>
+
+              {/* Message Content */}
+              <div>
+                <p className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-blue-500" />
+                  Message Content
+                </p>
+                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 text-sm text-gray-700 font-mono leading-relaxed">
+                  {selectedNotification.message}
+                </div>
+              </div>
+
+              {/* Error Details (If Failed) */}
+              {selectedNotification.status === 'failed' && selectedNotification.payload?.sms?.error && (
+                <div>
+                   <p className="text-sm font-semibold text-rose-800 mb-2 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                    Delivery Failure Reason
+                  </p>
+                  <div className="bg-rose-50 p-3 rounded-xl border border-rose-100 text-sm text-rose-700">
+                    {selectedNotification.payload.sms.error}
+                  </div>
+                </div>
+              )}
+
+              {/* Delivery Cost (If Sent) */}
+              {selectedNotification.status === 'sent' && selectedNotification.payload?.sms?.cost && (
+                <div className="flex justify-between items-center py-3 border-t border-gray-100">
+                  <span className="text-sm text-gray-500">Provider Cost</span>
+                  <span className="text-sm font-medium text-gray-800 bg-gray-100 px-2 py-1 rounded">{selectedNotification.payload.sms.cost}</span>
+                </div>
+              )}
+            </div>
+            
+            <div className="p-4 border-t border-gray-100 bg-gray-50">
+              <button 
+                onClick={() => setSelectedNotification(null)}
+                className="w-full py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors shadow-sm text-sm"
+              >
+                Close Details
+              </button>
+            </div>
           </div>
         </div>
       )}
