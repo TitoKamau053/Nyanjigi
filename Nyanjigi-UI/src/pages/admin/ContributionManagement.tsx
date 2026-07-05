@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Users, DollarSign, TrendingUp, Plus, Download, AlertCircle, Check, Clock, 
-  ChevronDown, Search, Filter, Edit2
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Users, DollarSign, TrendingUp, Plus, AlertCircle, Check, Edit2
 } from 'lucide-react';
+import SearchBar from '../../components/common/SearchBar';
+import PaginationControls from '../../components/common/PaginationControls';
+import useClientSearch from '../../hooks/useClientSearch';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -26,15 +28,8 @@ interface Contribution {
   phone?: string;
 }
 
-interface PaginationInfo {
-  current_page: number;
-  per_page: number;
-  total: number;
-  total_pages: number;
-}
-
 const ContributionManagement: React.FC = () => {
-  const [contributions, setContributions] = useState<Contribution[]>([]);
+  const [allContributions, setAllContributions] = useState<Contribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -42,39 +37,34 @@ const ContributionManagement: React.FC = () => {
   const [selectedContribution, setSelectedContribution] = useState<Contribution | null>(null);
   const [markingAs, setMarkingAs] = useState<'partial' | 'fully_paid' | null>(null);
   const [paymentNotes, setPaymentNotes] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterZone, setFilterZone] = useState<string>('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const { addToast } = useToast();
 
   useEffect(() => {
     fetchContributions();
-  }, [selectedMonth, currentPage, searchTerm, filterZone]);
+  }, [selectedMonth]);
 
   const fetchContributions = async () => {
     try {
       setLoading(true);
-      
-      const response = await adminService.getContributions({ 
-        page: currentPage,
-        limit: 10,
-        month: selectedMonth 
-      });
 
-      const allContributions = response.data?.data?.contributions || [];
-      setPagination(response.data?.data?.pagination);
+      const allFetchedContributions: Contribution[] = [];
+      let currentPage = 1;
+      let totalPages = 1;
 
-      // Filter by search term if provided
-      let filtered = allContributions;
-      if (searchTerm) {
-        filtered = allContributions.filter((c: Contribution) =>
-          c.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          c.account_number.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-      }
+      do {
+        const response = await adminService.getContributions({
+          page: currentPage,
+          limit: 100,
+          month: selectedMonth,
+        });
 
-      setContributions(filtered);
+        const contributionsData = response.data?.data?.contributions || [];
+        allFetchedContributions.push(...contributionsData);
+        totalPages = response.data?.data?.pagination?.total_pages || 1;
+        currentPage += 1;
+      } while (currentPage <= totalPages);
+
+      setAllContributions(allFetchedContributions);
     } catch (error) {
       console.error('Error fetching contributions:', error);
       addToast('Failed to fetch contributions', 'error');
@@ -126,6 +116,24 @@ const ContributionManagement: React.FC = () => {
     }
   };
 
+  const statusFilteredContributions = useMemo(() => {
+    return allContributions;
+  }, [allContributions]);
+
+  const {
+    paginatedData: contributions,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+  } = useClientSearch<Contribution>(statusFilteredContributions, ['customer_name', 'account_number', 'phone'], 10);
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'unpaid':
@@ -151,13 +159,13 @@ const ContributionManagement: React.FC = () => {
 
   // Calculate statistics
   const stats = {
-    total: contributions.length,
-    fully_paid: contributions.filter(c => c.payment_status === 'fully_paid').length,
-    partially_paid: contributions.filter(c => c.payment_status === 'partial').length,
-    unpaid: contributions.filter(c => c.payment_status === 'unpaid').length,
-    total_expected: contributions.length * TOTAL_CONTRIBUTION,
-    total_collected: contributions.reduce((sum, c) => sum + parseFloat(c.amount_paid), 0),
-    total_outstanding: contributions.reduce((sum, c) => sum + parseFloat(c.outstanding_amount), 0)
+    total: statusFilteredContributions.length,
+    fully_paid: statusFilteredContributions.filter((contribution) => contribution.payment_status === 'fully_paid').length,
+    partially_paid: statusFilteredContributions.filter((contribution) => contribution.payment_status === 'partial').length,
+    unpaid: statusFilteredContributions.filter((contribution) => contribution.payment_status === 'unpaid').length,
+    total_expected: statusFilteredContributions.length * TOTAL_CONTRIBUTION,
+    total_collected: statusFilteredContributions.reduce((sum, contribution) => sum + parseFloat(contribution.amount_paid || '0'), 0),
+    total_outstanding: statusFilteredContributions.reduce((sum, contribution) => sum + parseFloat(contribution.outstanding_amount || '0'), 0),
   };
 
   const collectionRate = stats.total > 0 ? ((stats.total_collected / stats.total_expected) * 100).toFixed(1) : 0;
@@ -251,18 +259,8 @@ const ContributionManagement: React.FC = () => {
       {/* Filters and Search */}
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex gap-4 items-center">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by customer name or account number..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+          <div className="flex-1">
+            <SearchBar value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search by customer name or account number..." />
           </div>
         </div>
       </div>
@@ -358,27 +356,16 @@ const ContributionManagement: React.FC = () => {
       </div>
 
       {/* Pagination */}
-      {pagination && pagination.total_pages > 1 && (
-        <div className="flex justify-center items-center gap-2">
-          <button
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-            className="px-3 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
-          >
-            Previous
-          </button>
-          <span className="text-sm text-gray-600">
-            Page {currentPage} of {pagination.total_pages}
-          </span>
-          <button
-            onClick={() => setCurrentPage(Math.min(pagination.total_pages, currentPage + 1))}
-            disabled={currentPage === pagination.total_pages}
-            className="px-3 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
-          >
-            Next
-          </button>
-        </div>
-      )}
+      <PaginationControls
+        currentPage={currentPage}
+        totalPages={totalPages}
+        hasPrev={hasPrev}
+        hasNext={hasNext}
+        onPageChange={(n) => setCurrentPage(n)}
+        itemsPerPage={itemsPerPage}
+        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        totalItems={totalItems}
+      />
 
       {/* Generate Modal */}
       {showGenerateModal && (

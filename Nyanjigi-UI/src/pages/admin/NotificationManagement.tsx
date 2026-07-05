@@ -4,7 +4,6 @@ import {
   AlertCircle,
   Send,
   Bell,
-  Search,
   X,
   CheckCircle,
   AlertTriangle,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
+import SearchBar from '../../components/common/SearchBar';
 
 interface Customer {
   id: number;
@@ -492,15 +492,8 @@ const fetchHistory = async () => {
               <>
                 {/* Search and Filters */}
                 <div className="space-y-3 mb-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search name, account, phone..."
-                      value={searchTerm}
-                      onChange={(e) => handleSearch(e.target.value)}
-                      className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                    />
+                  <div>
+                    <SearchBar value={searchTerm} onChange={(e) => handleSearch(e.target.value)} placeholder="Search name, account, phone..." className="text-sm" />
                   </div>
 
                   <select

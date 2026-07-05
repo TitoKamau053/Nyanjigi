@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Search } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FileText } from 'lucide-react';
+import SearchBar from '../../components/common/SearchBar';
+import PaginationControls from '../../components/common/PaginationControls';
+import useClientSearch from '../../hooks/useClientSearch';
 import { useToast } from '../../context/ToastContext';
 import { adminService } from '../../services/adminService';
 
@@ -22,56 +25,34 @@ interface Fine {
 }
 
 const AdminFines: React.FC = () => {
-  const [fines, setFines] = useState<Fine[]>([]);
+  const [allFines, setAllFines] = useState<Fine[]>([]);
   const [loading, setLoading] = useState(true);
   const { addToast } = useToast();
 
-  // Pagination and filtering states
-  const [pagination, setPagination] = useState<any>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [isSearching, setIsSearching] = useState(false);
-  
-  // Debounce ref for search (15 seconds)
-  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    fetchFines(1);
-    
-    // Cleanup on unmount
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-    };
+    fetchFines();
   }, []);
 
-  const fetchFines = async (page: number = 1, search: string = '', status: string = 'all') => {
+  const fetchFines = async () => {
     try {
       setLoading(true);
-      const params: any = {
-        page,
-        per_page: itemsPerPage,
-      };
+      const allFetchedFines: Fine[] = [];
+      let currentPage = 1;
+      let totalPages = 1;
 
-      if (search.trim()) {
-        params.search = search.trim();
-      }
+      do {
+        const response = await adminService.getFines?.({ page: currentPage, limit: 100 });
+        const apiData = response?.data?.data || response?.data;
+        const finesData = apiData.fines || apiData || [];
 
-      if (status !== 'all') {
-        params.status = status;
-      }
+        allFetchedFines.push(...finesData);
+        totalPages = apiData.pagination?.total_pages || 1;
+        currentPage += 1;
+      } while (currentPage <= totalPages);
 
-      const response = await adminService.getFines?.(params);
-      const apiData = response?.data?.data || response?.data;
-      const finesData = apiData.fines || apiData || [];
-      const paginationData = apiData.pagination || null;
-
-      setFines(finesData);
-      setPagination(paginationData);
-      setCurrentPage(page);
+      setAllFines(allFetchedFines);
     } catch (error) {
       console.error('Error fetching fines:', error);
       addToast('Failed to fetch fines', 'error');
@@ -80,69 +61,36 @@ const AdminFines: React.FC = () => {
     }
   };
 
-// Handle search term changes (ONLY updates state now)
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
-    setCurrentPage(1); // Reset to first page on search
-    setIsSearching(true);
   };
 
-  // Handle Enter key press to trigger search immediately
-  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // Clear any pending debounce timeout
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-      // Fetch immediately
-      setCurrentPage(1);
-      fetchFines(1, searchTerm, statusFilter);
-      setIsSearching(false);
-    }
-  };
-
-// Handle status filter changes (triggers fetch immediately)
   const handleStatusChange = (status: string) => {
     setStatusFilter(status);
-    setIsSearching(true); // Trigger immediate fetch for status filter
   };
 
-  // Handle items per page change
-  const handleItemsPerPageChange = (newPerPage: number) => {
-    setItemsPerPage(newPerPage);
-    setCurrentPage(1);
-  };
-
-  // Handle pagination change
-  const handlePageChange = (page: number) => {
-    fetchFines(page, searchTerm, statusFilter);
-  };
-
-  // Trigger search/filter with 5-second debounce for search, immediate for status/items change
-  useEffect(() => {
-    // Clear previous timeout
-    if (debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-    }
-
-    if (isSearching) {
-      // For status filter changes, fetch immediately
-      // For search term changes, wait 5 seconds (5000ms)
-      const delay = searchTerm.trim() ? 5000 : 0;
-      
-      debounceTimeoutRef.current = setTimeout(() => {
-        fetchFines(1, searchTerm, statusFilter);
-        setIsSearching(false);
-      }, delay);
-    }
-
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
+  const statusFilteredFines = useMemo(() => {
+    return allFines.filter((fine) => {
+      if (statusFilter !== 'all' && fine.status !== statusFilter) {
+        return false;
       }
-    };
-  }, [searchTerm, statusFilter, itemsPerPage, isSearching]);
+      return true;
+    });
+  }, [allFines, statusFilter]);
+
+  const {
+    paginatedData: fines,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+  } = useClientSearch<Fine>(statusFilteredFines, ['full_name', 'account_number', 'fine_name', 'reason'], 10);
 
   const formatCurrency = (amount: string | number): string => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
@@ -168,21 +116,11 @@ const AdminFines: React.FC = () => {
       </div>
 
       {/* Search and Filter */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="md:col-span-2 flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search by customer name or account..."
-              value={searchTerm}
-              onChange={handleSearchChange}
-              onKeyPress={handleSearchKeyPress}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="md:col-span-2">
+          <SearchBar value={searchTerm} onChange={handleSearchChange} placeholder="Search by customer name or account..." />
         </div>
-        
+
         <div>
           <select
             value={statusFilter}
@@ -194,22 +132,6 @@ const AdminFines: React.FC = () => {
             <option value="paid">Paid</option>
             <option value="waived">Waived</option>
           </select>
-        </div>
-
-        <div>
-          <button
-            onClick={() => {
-              if (debounceTimeoutRef.current) {
-                clearTimeout(debounceTimeoutRef.current);
-              }
-              setCurrentPage(1);
-              fetchFines(1, searchTerm, statusFilter);
-              setIsSearching(false);
-            }}
-            className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
-          >
-            Search
-          </button>
         </div>
       </div>
 
@@ -266,76 +188,16 @@ const AdminFines: React.FC = () => {
       </div>
 
       {/* Pagination Controls */}
-      {pagination && fines.length > 0 && (
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 mr-2">Items per page:</label>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-              </select>
-            </div>
-            <div className="text-sm text-gray-600">
-              Showing {(pagination.current_page - 1) * pagination.per_page + 1} to {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of {pagination.total} results
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handlePageChange(pagination.current_page - 1)}
-              disabled={!pagination.has_prev}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Previous
-            </button>
-
-            {/* Page Numbers */}
-            <div className="flex gap-1">
-              {Array.from({ length: pagination.total_pages }, (_, i) => i + 1).map((page) => {
-                const showPage = 
-                  page === 1 || 
-                  page === pagination.total_pages || 
-                  Math.abs(page - pagination.current_page) <= 1;
-                
-                if (!showPage && (page === 2 || page === pagination.total_pages - 1)) {
-                  return <span key={`ellipsis-${page}`} className="px-2 py-1">...</span>;
-                }
-
-                if (!showPage) return null;
-
-                return (
-                  <button
-                    key={page}
-                    onClick={() => handlePageChange(page)}
-                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${
-                      page === pagination.current_page
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'border-gray-300 bg-white hover:bg-gray-50'
-                    }`}
-                  >
-                    {page}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => handlePageChange(pagination.current_page + 1)}
-              disabled={!pagination.has_next}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      <PaginationControls
+        currentPage={currentPage}
+        totalPages={totalPages}
+        hasPrev={hasPrev}
+        hasNext={hasNext}
+        onPageChange={(n) => setCurrentPage(n)}
+        itemsPerPage={itemsPerPage}
+        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        totalItems={totalItems}
+      />
       </div>
   );
 };

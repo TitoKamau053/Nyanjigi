@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import useClientSearch from '../../hooks/useClientSearch';
+import SearchBar from '../../components/common/SearchBar';
+import PaginationControls from '../../components/common/PaginationControls';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -24,7 +27,7 @@ export default function MeterReadings() {
   const [readings, setReadings] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  
   const [modalData, setModalData] = useState<ReadingModalData>({
     customer: null,
     isOpen: false,
@@ -32,9 +35,7 @@ export default function MeterReadings() {
   });
   const { addToast } = useToast();
 
-  // Pagination states
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  // Pagination and client-side search handled by hook
 
   const fetchCustomers = async () => {
     try {
@@ -94,28 +95,19 @@ export default function MeterReadings() {
     closeModal();
   };
 
-  const filteredCustomers = customers.filter(c =>
-    c.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.account_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (c.meter_number && c.meter_number.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
-
-  // Pagination logic
-  const totalPages = Math.ceil(filteredCustomers.length / itemsPerPage);
-  const paginatedCustomers = filteredCustomers.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
-    setCurrentPage(1); // Reset to first page on search
-  };
-
-  const handleItemsPerPageChange = (newPerPage: number) => {
-    setItemsPerPage(newPerPage);
-    setCurrentPage(1);
-  };
+  const {
+    paginatedData: paginatedCustomers,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+  } = useClientSearch<CustomerReading>(customers, ['full_name', 'account_number', 'meter_number'], 10 as number);
 
   const handleSave = async () => {
     try {
@@ -178,13 +170,7 @@ export default function MeterReadings() {
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <input
-          type="text"
-          placeholder="Search by customer name, meter number..."
-          value={searchQuery}
-          onChange={handleSearchChange}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+        <SearchBar value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search by customer name, meter number..." />
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -246,75 +232,17 @@ export default function MeterReadings() {
       </div>
 
       {/* Pagination Controls */}
-      {filteredCustomers.length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 mr-2">Items per page:</label>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-              </select>
-            </div>
-            <div className="text-sm text-gray-600">
-              Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredCustomers.length)} of {filteredCustomers.length} results
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Previous
-            </button>
-
-            {/* Page Numbers */}
-            <div className="flex gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                const showPage = 
-                  page === 1 || 
-                  page === totalPages || 
-                  Math.abs(page - currentPage) <= 1;
-                
-                if (!showPage && (page === 2 || page === totalPages - 1)) {
-                  return <span key={`ellipsis-${page}`} className="px-2 py-1">...</span>;
-                }
-
-                if (!showPage) return null;
-
-                return (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${
-                      page === currentPage
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'border-gray-300 bg-white hover:bg-gray-50'
-                    }`}
-                  >
-                    {page}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {totalItems > 0 && (
+        <PaginationControls
+          currentPage={currentPage}
+          totalPages={totalPages}
+          hasPrev={hasPrev}
+          hasNext={hasNext}
+          onPageChange={(n) => setCurrentPage(n)}
+          itemsPerPage={itemsPerPage}
+          onItemsPerPageChange={(n) => setItemsPerPage(n)}
+          totalItems={totalItems}
+        />
       )}
 
       {customers.length === 0 && !loading && (

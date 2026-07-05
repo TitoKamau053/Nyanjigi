@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Calendar, DollarSign, AlertCircle, Download, Plus, Droplets, Search } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FileText, Calendar, DollarSign, AlertCircle, Download, Plus, Droplets } from 'lucide-react';
+import SearchBar from '../../components/common/SearchBar';
+import PaginationControls from '../../components/common/PaginationControls';
+import useClientSearch from '../../hooks/useClientSearch';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -20,12 +23,6 @@ interface Bill {
   meter_reading_current?: number;
   units_consumed?: number;
   rate_per_unit?: number;
-}
-
-interface BillStats {
-  total_paid_amount: number;
-  total_pending_amount: number;
-  total_overdue_amount: number;
 }
 
 interface EditBillModalProps {
@@ -90,13 +87,7 @@ const EditBillModal: React.FC<EditBillModalProps> = ({ bill, onClose, onSave }) 
 };
 
 const BillingManagement: React.FC = () => {
-  const [bills, setBills] = useState<Bill[]>([]);
-  const [billStats, setBillStats] = useState<BillStats>({
-    total_paid_amount: 0,
-    total_pending_amount: 0,
-    total_overdue_amount: 0
-  });
-  const [pagination, setPagination] = useState<any>(null);
+  const [allBills, setAllBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -106,68 +97,42 @@ const BillingManagement: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
 
-  // Pagination and Search States
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [searchTerm, setSearchTerm] = useState('');
+  // Search and filter state
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [isSearching, setIsSearching] = useState(false);
-  
-  // Debounce ref for search (15 seconds)
-  const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    fetchBillStats();
-    fetchBills(1);
-    
-    // Cleanup on unmount
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-    };
-  }, [selectedMonth]);
+    fetchBills();
+  }, [selectedMonth, statusFilter]);
 
-  const fetchBillStats = async () => {
-    try {
-      const response = await adminService.getBillStats();
-      const stats = response.data.data?.summary || response.data.summary || {
-        total_paid_amount: 0,
-        total_pending_amount: 0,
-        total_overdue_amount: 0
-      };
-      setBillStats(stats);
-    } catch (error) {
-      console.error('Failed to fetch bill stats:', error);
-      addToast('Failed to fetch bill statistics', 'error');
-    }
-  };
-
-  const fetchBills = async (page: number = 1, search: string = '', status: string = 'all') => {
+  const fetchBills = async () => {
     try {
       setLoading(true);
-      const params: any = {
-        month: selectedMonth,
-        page,
-        per_page: itemsPerPage,
-      };
-      
-      if (search.trim()) {
-        params.search = search.trim();
-      }
-      
-      if (status !== 'all') {
-        params.status = status;
-      }
 
-      const response = await adminService.getBills(params);
-      const apiData = response.data.data || response.data;
-      const billsData = apiData.bills || [];
-      const paginationData = apiData.pagination || null;
+      const allFetchedBills: Bill[] = [];
+      let currentPage = 1;
+      let totalPages = 1;
 
-      setBills(billsData);
-      setPagination(paginationData);
-      setCurrentPage(page);
+      do {
+        const params: any = {
+          month: selectedMonth,
+          page: currentPage,
+          per_page: 100,
+        };
+
+        if (statusFilter !== 'all') {
+          params.status = statusFilter;
+        }
+
+        const response = await adminService.getBills(params);
+        const apiData = response.data.data || response.data;
+        const billsData = apiData.bills || [];
+
+        allFetchedBills.push(...billsData);
+        totalPages = apiData.pagination?.total_pages || 1;
+        currentPage += 1;
+      } while (currentPage <= totalPages);
+
+      setAllBills(allFetchedBills);
     } catch (error) {
       addToast('Failed to fetch bills', 'error');
     } finally {
@@ -179,7 +144,7 @@ const BillingManagement: React.FC = () => {
     try {
       setLoading(true);
       await adminService.generateBills({ billing_month: selectedMonth + '-01' });
-      await fetchBills(1, searchTerm, statusFilter);
+      await fetchBills();
       setShowGenerateModal(false);
       addToast('Bills generated successfully', 'success');
     } catch (error) {
@@ -189,88 +154,37 @@ const BillingManagement: React.FC = () => {
     }
   };
 
-  // Handle search term changes
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const term = e.target.value;
-    setSearchTerm(term);
-    setCurrentPage(1);
-    setIsSearching(true);
+    setSearchTerm(e.target.value);
   };
 
-  // Handle Enter key press to trigger search immediately
-  const handleSearchKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      // Clear any pending debounce timeout
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-      // Fetch immediately
-      setCurrentPage(1);
-      fetchBills(1, searchTerm, statusFilter);
-      setIsSearching(false);
-    }
-  };
-
-  // Handle status filter changes
   const handleStatusChange = (status: string) => {
     setStatusFilter(status);
-    setCurrentPage(1);
-    setIsSearching(true); // Trigger immediate fetch for status filter
   };
 
-  // Handle items per page change
-  const handleItemsPerPageChange = (newPerPage: number) => {
-    setItemsPerPage(newPerPage);
-    setCurrentPage(1);
-  };
-
-  // Handle pagination change
-  const handlePageChange = (page: number) => {
-    fetchBills(page, searchTerm, statusFilter);
-  };
-
-  // Trigger search/filter with 5-second debounce for search, immediate for status/items change
-  useEffect(() => {
-    // Clear previous timeout
-    if (debounceTimeoutRef.current) {
-      clearTimeout(debounceTimeoutRef.current);
-    }
-
-    if (isSearching) {
-      // For status filter changes, fetch immediately
-      // For search term changes, wait 5 seconds (5000ms)
-      const delay = searchTerm.trim() ? 5000 : 0;
-      
-      debounceTimeoutRef.current = setTimeout(() => {
-        fetchBills(1, searchTerm, statusFilter);
-        setIsSearching(false);
-      }, delay);
-    }
-
-    return () => {
-      if (debounceTimeoutRef.current) {
-        clearTimeout(debounceTimeoutRef.current);
-      }
-    };
-  }, [searchTerm, statusFilter, itemsPerPage, isSearching]);
-
-const handleExport = async () => {
+  const handleExport = async () => {
     try {
       const response = await adminService.exportBills({ format: 'csv', month: selectedMonth });
       const blob = new Blob([response.data], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `bills-${selectedMonth}.csv`;
+      link.click();
+      window.URL.revokeObjectURL(url);
     } catch (error) {
       addToast('Failed to export bills', 'error');
     }
   };
+
   const handleViewBill = (billId: number) => {
-    const bill = bills.find(b => b.id === billId) || null;
+    const bill = allBills.find((b: Bill) => b.id === billId) || null;
     setSelectedBill(bill);
     setShowViewModal(true);
   };
 
   const handleEditBill = (billId: number) => {
-    const bill = bills.find(b => b.id === billId) || null;
+    const bill = allBills.find((b: Bill) => b.id === billId) || null;
     setSelectedBill(bill);
     setShowEditModal(true);
   };
@@ -304,7 +218,7 @@ const handleExport = async () => {
     try {
       await adminService.updateBillStatus(billId, { status: 'paid' });
       addToast('Bill marked as paid', 'success');
-      fetchBills(currentPage, searchTerm, statusFilter);
+      await fetchBills();
     } catch (error) {
       addToast('Failed to mark bill as paid', 'error');
     }
@@ -327,9 +241,33 @@ const handleExport = async () => {
     return bill.status;
   };
 
-  const totalAmount = Math.round(bills.filter(b => b.status === 'paid').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
-  const pendingAmount = Math.round(bills.filter(b => getDisplayStatus(b) === 'pending').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
-  const overdueAmount = Math.round(bills.filter(b => getDisplayStatus(b) === 'overdue').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
+  const statusFilteredBills = useMemo(() => {
+    if (statusFilter === 'all') return allBills;
+    return allBills.filter((bill) => {
+      if (statusFilter === 'overdue') {
+        return bill.status !== 'paid' && new Date(bill.due_date) < new Date();
+      }
+      return bill.status === statusFilter;
+    });
+  }, [allBills, statusFilter]);
+
+  const {
+    paginatedData: visibleBills,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+  } = useClientSearch<Bill>(statusFilteredBills, ['customer_name', 'account_number', 'customer_id', 'id'], 10);
+
+  const totalAmount = Math.round(statusFilteredBills.filter(b => b.status === 'paid').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
+  const pendingAmount = Math.round(statusFilteredBills.filter(b => getDisplayStatus(b) === 'pending').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
+  const overdueAmount = Math.round(statusFilteredBills.filter(b => getDisplayStatus(b) === 'overdue').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
 
   if (loading) {
     return (
@@ -356,7 +294,9 @@ const handleExport = async () => {
           />
           <button
             onClick={() => {
-              const pendingBills = bills.filter(b => getDisplayStatus(b) === 'pending').map(b => b.id);
+              const pendingBills = statusFilteredBills
+                .filter((bill: Bill) => getDisplayStatus(bill) === 'pending')
+                .map((bill: Bill) => bill.id);
               if (pendingBills.length > 0) {
                 handleBulkMarkPaid(pendingBills);
               } else {
@@ -380,17 +320,7 @@ const handleExport = async () => {
       {/* Search and Filters */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="md:col-span-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search by customer name or account..."
-              value={searchTerm}
-              onChange={handleSearchChange}
-              onKeyPress={handleSearchKeyPress}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
+          <SearchBar value={searchTerm} onChange={handleSearchChange} placeholder="Search by customer name or account..." />
         </div>
         <div>
           <select
@@ -410,7 +340,7 @@ const handleExport = async () => {
             <FileText className="w-8 h-8 text-blue-600" />
             <div>
               <p className="text-sm text-gray-600">Total Bills</p>
-              <p className="text-2xl font-bold text-gray-900">{pagination?.total || bills.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{totalItems}</p>
             </div>
           </div>
         </div>
@@ -504,7 +434,7 @@ const handleExport = async () => {
             <FileText className="w-8 h-8 text-blue-600" />
             <div>
               <p className="text-sm text-gray-600">Total Bills</p>
-              <p className="text-2xl font-bold text-gray-900">{bills.length}</p>
+              <p className="text-2xl font-bold text-gray-900">{totalItems}</p>
             </div>
           </div>
         </div>
@@ -564,7 +494,7 @@ const handleExport = async () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {bills.map((bill) => (
+              {visibleBills.map((bill) => (
                 <tr key={bill.id} className="hover:bg-blue-50/30 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{bill.customer_name}</div>
@@ -623,78 +553,18 @@ const handleExport = async () => {
       </div>
 
       {/* Pagination Controls */}
-      {pagination && (
-        <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <label className="text-sm font-medium text-gray-700 mr-2">Items per page:</label>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-              </select>
-            </div>
-            <div className="text-sm text-gray-600">
-              Showing {(pagination.current_page - 1) * pagination.per_page + 1} to {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of {pagination.total} results
-            </div>
-          </div>
+      <PaginationControls
+        currentPage={currentPage}
+        totalPages={totalPages}
+        hasPrev={hasPrev}
+        hasNext={hasNext}
+        onPageChange={(n) => setCurrentPage(n)}
+        itemsPerPage={itemsPerPage}
+        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        totalItems={totalItems}
+      />
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handlePageChange(pagination.current_page - 1)}
-              disabled={!pagination.has_prev}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Previous
-            </button>
-
-            {/* Page Numbers */}
-            <div className="flex gap-1">
-              {Array.from({ length: pagination.total_pages }, (_, i) => i + 1).map((page) => {
-                const showPage = 
-                  page === 1 || 
-                  page === pagination.total_pages || 
-                  Math.abs(page - pagination.current_page) <= 1;
-                
-                if (!showPage && (page === 2 || page === pagination.total_pages - 1)) {
-                  return <span key={`ellipsis-${page}`} className="px-2 py-1">...</span>;
-                }
-
-                if (!showPage) return null;
-
-                return (
-                  <button
-                    key={page}
-                    onClick={() => handlePageChange(page)}
-                    className={`px-3 py-1 rounded-md text-sm border transition-colors ${
-                      page === pagination.current_page
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'border-gray-300 bg-white hover:bg-gray-50'
-                    }`}
-                  >
-                    {page}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => handlePageChange(pagination.current_page + 1)}
-              disabled={!pagination.has_next}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
-
-      {bills.length === 0 && (
+      {visibleBills.length === 0 && (
         <div className="text-center py-12">
           <FileText className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No bills found</h3>
