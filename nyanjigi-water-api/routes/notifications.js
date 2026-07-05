@@ -18,7 +18,7 @@ router.post(
   '/send',
   [
     body('notification_type')
-      .isIn(['bill', 'contribution'])
+      .isIn(['bill', 'contribution', 'custom'])
       .withMessage('Invalid notification_type'),
     body('message')
       .notEmpty()
@@ -53,7 +53,7 @@ router.get(
       .withMessage('Limit must be between 1 and 100'),
     query('notification_type')
       .optional()
-      .isIn(['bill', 'contribution'])
+      .isIn(['bill', 'contribution', 'custom'])
       .withMessage('Invalid notification_type'),
     query('start_date')
       .optional()

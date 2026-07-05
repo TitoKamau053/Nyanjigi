@@ -7,6 +7,14 @@ const { validationResult } = require('express-validator');
  * NotificationController - Handles manual notification sending
  */
 class NotificationController {
+  static normalizeNotificationType(type) {
+    const normalized = typeof type === 'string' ? type.trim().toLowerCase() : '';
+    if (['bill', 'contribution', 'custom'].includes(normalized)) {
+      return normalized;
+    }
+    return 'custom';
+  }
+
   /**
    * Send notifications to selected customers
    * POST /notifications/send
@@ -29,13 +37,14 @@ class NotificationController {
 
       const { customer_ids, notification_type, message, send_to_all = false } = req.body;
       const admin_id = req.admin?.id;
+      const normalizedNotificationType = NotificationController.normalizeNotificationType(notification_type);
 
       if (!admin_id) {
         console.error('No admin_id found in request');
         return ApiResponse.error(res, 'Unauthorized', 401);
       }
 
-      if (!notification_type || !['bill', 'contribution'].includes(notification_type)) {
+      if (!notification_type || !['bill', 'contribution', 'custom'].includes(normalizedNotificationType)) {
         return ApiResponse.error(res, 'Invalid notification_type', 400);
       }
 
@@ -78,7 +87,7 @@ class NotificationController {
         successful: 0,
         failed: 0,
         failed_details: [],
-        notification_type,
+        notification_type: normalizedNotificationType,
         timestamp: new Date().toISOString()
       };
 
@@ -144,7 +153,7 @@ class NotificationController {
       try {
         await logNotificationBatch({
           admin_id,
-          notification_type,
+          notification_type: normalizedNotificationType,
           total_recipients: results.total,
           successful: results.successful,
           failed: results.failed,

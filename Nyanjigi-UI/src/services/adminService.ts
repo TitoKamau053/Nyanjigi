@@ -402,7 +402,7 @@ export const adminService = {
 
   // NOTIFICATIONS
   sendNotifications: (data: {
-    notification_type: 'bill' | 'contribution' | 'fine' | 'overdue';
+    notification_type: 'bill' | 'contribution' | 'fine' | 'overdue' | 'custom';
     message: string;
     customer_ids?: number[];
     send_to_all?: boolean;
@@ -411,7 +411,7 @@ export const adminService = {
   getNotificationHistory: (params?: {
     page?: number;
     limit?: number;
-    notification_type?: 'bill' | 'contribution' | 'fine' | 'overdue';
+    notification_type?: 'bill' | 'contribution' | 'fine' | 'overdue' | 'custom';
     start_date?: string;
     end_date?: string;
   }) => {

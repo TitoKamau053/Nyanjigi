@@ -33,8 +33,8 @@ class NotificationService {
       // 1. Send SMS
       if (this.settings.sms_enabled && recipient.phone) {
         try {
-          if (notificationType === 'manual_sms') {
-             // Handle manual test messages directly
+          if (notificationType === 'manual_sms' || notificationType === 'custom') {
+             // Handle manual/custom messages directly
              const messageContent = variables.message || 'Test Notification';
              results.sms = await SMSService.sendSMS(recipient.phone, messageContent);
           } else {
