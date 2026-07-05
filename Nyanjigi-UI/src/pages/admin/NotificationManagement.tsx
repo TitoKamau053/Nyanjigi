@@ -577,13 +577,13 @@ const fetchHistory = async () => {
                   <option value="contribution">Contribution Reminder</option>
                   <option value="fine">Fine Notification</option>
                   <option value="overdue">Overdue Payment Reminder</option>
-                  <option value="custom">Custom Message</option>
+                  <option value="custom">Any other notification</option>
                 </select>
               </div>
 
               {notificationType === 'custom' ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Custom Message</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Any other notification</label>
                   <textarea
                     value={customMessage}
                     onChange={(e) => setCustomMessage(e.target.value)}
