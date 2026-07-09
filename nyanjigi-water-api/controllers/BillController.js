@@ -1,6 +1,7 @@
 const { Bill, Customer, SystemSettings } = require('../models');
 const ApiResponse = require('../utils/response');
 const moment = require('moment');
+// NotificationService is still required if you need it elsewhere, or you can remove the require if it's no longer used in this file.
 const NotificationService = require('../services/NotificationService');
 
 /**
@@ -24,17 +25,21 @@ class BillController {
 
       const result = await Bill.generateMonthlyBills(billing_month, customer_ids);
 
+      // AUTOMATIC NOTIFICATIONS DISABLED
+      // The admin will now manually trigger these from the Notification Management page.
+      /*
       let smsSummary = null;
       if (result.notifications && result.notifications.length > 0) {
         const dispatch = await NotificationService.sendBillingCycleMessages(result.notifications);
         smsSummary = dispatch.summary;
       }
+      */
 
+      // Clean up the response payload so we don't send raw notification data to the frontend
       delete result.notifications;
 
       return ApiResponse.success(res, {
-        ...result,
-        sms_summary: smsSummary
+        ...result
       },
         `Successfully generated ${result.generated_count} bills for ${billingDate.format('MMMM YYYY')}`);
     } catch (error) {
@@ -66,17 +71,19 @@ class BillController {
 
       const result = await Bill.generateMonthlyBills(billing_month, [parseInt(customerId)]);
 
+      // AUTOMATIC NOTIFICATIONS DISABLED
+      /*
       let smsSummary = null;
       if (result.notifications && result.notifications.length > 0) {
         const dispatch = await NotificationService.sendBillingCycleMessages(result.notifications);
         smsSummary = dispatch.summary;
       }
+      */
 
       delete result.notifications;
 
       return ApiResponse.success(res, {
-        ...result,
-        sms_summary: smsSummary
+        ...result
       },
         `Successfully generated bill for customer ${customer.full_name} for ${billingDate.format('MMMM YYYY')}`);
     } catch (error) {

@@ -30,7 +30,7 @@ class Bill extends BaseModel {
       const settingsQuery = `
         SELECT setting_key, setting_value 
         FROM system_settings 
-        WHERE setting_key IN ('payment_due_days', 'monthly_contribution_amount', 'total_contribution_target', 'water_rate_per_unit')
+        WHERE setting_key IN ('payment_due_days', 'monthly_contribution_amount', 'total_contribution_target', 'water_rate_per_unit', 'default_flat_rate')
       `;
       const settings = await executeQuery(settingsQuery);
       const settingsMap = {};
@@ -41,6 +41,10 @@ class Bill extends BaseModel {
       const totalContributionTarget = parseFloat(settingsMap.total_contribution_target) || 18500.00;
       const ratePerUnit = parseFloat(settingsMap.water_rate_per_unit) || 50.00;
       
+      //Move periodStart and periodEnd definitions UP HERE
+      const periodStart = previousMonth.clone().startOf('month').format('YYYY-MM-DD');
+      const periodEnd = previousMonth.clone().endOf('month').format('YYYY-MM-DD');
+      
       // Get customers to bill with their connection date and type
       let customerQuery = `
               SELECT c.id, c.account_number, c.full_name, c.phone, c.customer_type,
@@ -49,18 +53,19 @@ class Bill extends BaseModel {
                     COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) as outstanding_fines,
                     COALESCE((SELECT SUM(amount_paid) FROM contributions WHERE customer_id = c.id), 0) as total_contributions_paid
               FROM customers c
-              INNER JOIN meter_readings mr ON c.id = mr.customer_id AND mr.reading_month = ? AND mr.is_billed = FALSE
+              LEFT JOIN meter_readings mr ON c.id = mr.customer_id AND mr.reading_month = ? AND mr.is_billed = FALSE
               WHERE c.is_active = TRUE
             `;
-      const params = [periodStart];
+      
+      // Now periodStart is safely initialized before it is used
+      const params = [periodStart]; 
+
       if (customerIds && customerIds.length > 0) {
         customerQuery += ` AND c.id IN (${customerIds.map(() => '?').join(',')})`;
         params.push(...customerIds);
       }
 
       // Check for existing bills for this period and customer
-      const periodStart = previousMonth.clone().startOf('month').format('YYYY-MM-DD');
-      const periodEnd = previousMonth.clone().endOf('month').format('YYYY-MM-DD');
       customerQuery += `
         AND NOT EXISTS (
           SELECT 1 FROM bills
@@ -85,61 +90,75 @@ class Bill extends BaseModel {
       const notifications = [];
 
       // Prepare bill data for bulk insert with flat rate based on customer type
-        const billsData = customers.map(customer => {
-        const unitsConsumed = customer.current_reading - customer.previous_reading;
-        // Prevent negative bills if a reading was entered incorrectly
-        const validUnits = unitsConsumed > 0 ? unitsConsumed : 0; 
-        const currentCharges = validUnits * ratePerUnit;
+  const billsData = customers.map(customer => {
+    let currentCharges = 0;
+    let validUnits = 0;
 
-        const previousOutstanding = parseFloat(customer.previous_balance || 0);
-        const outstandingFines = parseFloat(customer.outstanding_fines || 0);
-        const contributionsPaid = parseFloat(customer.total_contributions_paid || 0);
-        const contributionOutstanding = Math.max(0, totalContributionTarget - contributionsPaid);
-        const totalAmount = previousOutstanding + currentCharges + outstandingFines;
+    //Meters will be deployed later, and readings exist, calculate by units.
+  if (customer.current_reading !== null && customer.previous_reading !== null && customer.customer_type !== 'flat_rate') {
+      const unitsConsumed = customer.current_reading - customer.previous_reading;
+      validUnits = unitsConsumed > 0 ? unitsConsumed : 0; 
+      currentCharges = validUnits * ratePerUnit;
+  } else {
+      // CURRENT STATE: Ignore missing readings and apply the flat rate to everyone
+      // Changed from settingsMap.flat_rate to settingsMap.default_flat_rate
+      currentCharges = parseFloat(settingsMap.default_flat_rate) || 0; 
+  }
 
-        notifications.push({
-          customer_id: customer.id,
-          customer_name: customer.full_name,
-          phone: customer.phone,
-          account_number: customer.account_number,
-          billing_month_label: previousMonth.format('MMMM YYYY'),
-          current_month_charge: flatRate,
-          previous_outstanding: previousOutstanding,
-          outstanding_fines: outstandingFines,
-          monthly_contribution_amount: monthlyContributionAmount,
-          contribution_outstanding: contributionOutstanding,
-          contribution_target: totalContributionTarget,
-          payment_grace_days: paymentDueDays,
-          current_month_charge: currentCharges,
-          units_consumed: validUnits
-        });
+    const previousOutstanding = parseFloat(customer.previous_balance || 0);
+    const outstandingFines = parseFloat(customer.outstanding_fines || 0);
+    const contributionsPaid = parseFloat(customer.total_contributions_paid || 0);
+    const contributionOutstanding = Math.max(0, totalContributionTarget - contributionsPaid);
+    const totalAmount = previousOutstanding + currentCharges + outstandingFines;
 
-        return {
-          customer_id: customer.id,
-          bill_number: this.generateBillNumber(customer.id, billingDate.toDate()),
-          billing_period_start: periodStart,
-          billing_period_end: periodEnd,
-          previous_balance: previousOutstanding,
-          current_charges: currentCharges,
-          fines_applied: outstandingFines,
-          total_amount: totalAmount,
-          due_date: dueDate,
-          status: 'pending',
-          bill_type: 'metered',
-          meter_reading_previous: customer.previous_reading,
-          meter_reading_current: customer.current_reading,
-          units_consumed: validUnits,
-          rate_per_unit: ratePerUnit
-        };
-      });
+    notifications.push({
+      customer_id: customer.id,
+      customer_name: customer.full_name,
+      phone: customer.phone,
+      account_number: customer.account_number,
+      billing_month_label: previousMonth.format('MMMM YYYY'),
+      previous_outstanding: previousOutstanding,
+      outstanding_fines: outstandingFines,
+      monthly_contribution_amount: monthlyContributionAmount,
+      contribution_outstanding: contributionOutstanding,
+      contribution_target: totalContributionTarget,
+      payment_grace_days: paymentDueDays,
+      current_month_charge: currentCharges, 
+      units_consumed: validUnits
+    });
 
-      // Bulk insert bills
-      await this.bulkInsert(billsData);
+    return {
+      customer_id: customer.id,
+      bill_number: this.generateBillNumber(customer.id, billingDate.toDate()),
+      billing_period_start: periodStart,
+      billing_period_end: periodEnd,
+      previous_balance: previousOutstanding,
+      current_charges: currentCharges,
+      fines_applied: outstandingFines,
+      total_amount: totalAmount,
+      due_date: dueDate,
+      status: 'pending',
+      bill_type: 'flat_rate',
+      meter_reading_previous: 0,
+      meter_reading_current: 0,
+      units_consumed: validUnits,
+      rate_per_unit: ratePerUnit
+    };
+  });
 
+    // Bulk insert bills ONLY ONCE
       if (billsData.length > 0) {
         await this.bulkInsert(billsData);
-        const readingIds = customers.map(c => c.reading_id);
-        await executeQuery(`UPDATE meter_readings SET is_billed = TRUE WHERE id IN (${readingIds.join(',')})`);
+        
+        // update meter readings if they actually exist
+        // The filter removes 'null' values caused by the LEFT JOIN for unmetered customers
+        const readingIds = customers
+            .map(c => c.reading_id)
+            .filter(id => id !== null && id !== undefined); 
+
+        if (readingIds.length > 0) {
+          await executeQuery(`UPDATE meter_readings SET is_billed = TRUE WHERE id IN (${readingIds.join(',')})`);
+        }
       }
 
       console.log('Bills generated. Now processing automatic payments from advances');
