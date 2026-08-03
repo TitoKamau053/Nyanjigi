@@ -421,17 +421,18 @@ class EquityController {
         account_number: customer.account_number
       };
 
-      // Send payment confirmation SMS
-      const NotificationService = require('../services/NotificationService');
-      await NotificationService.sendNotification(
-        {
-          id: customer.id,
-          phone: customer.phone,
-          email: customer.email
-        },
-        'payment_received',
-        variables
-      );
+      // Payment confirmation SMS is disabled for automated Equity callbacks.
+      // Any customer notification must be initiated explicitly by an admin action.
+      // const NotificationService = require('../services/NotificationService');
+      // await NotificationService.sendNotification(
+      //   {
+      //     id: customer.id,
+      //     phone: customer.phone,
+      //     email: customer.email
+      //   },
+      //   'payment_received',
+      //   variables
+      // );
 
       await this.logPaymentAttempt({
         transaction_id,

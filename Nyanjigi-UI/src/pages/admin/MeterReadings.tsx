@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import useClientSearch from '../../hooks/useClientSearch';
+import { useState, useEffect, SetStateAction } from 'react';
+import useServerSearch from '../../hooks/useServerSearch';
 import SearchBar from '../../components/common/SearchBar';
 import PaginationControls from '../../components/common/PaginationControls';
 import { adminService } from '../../services/adminService';
@@ -35,34 +35,40 @@ export default function MeterReadings() {
   });
   const { addToast } = useToast();
 
-  // Pagination and client-side search handled by hook
+  const {
+    data: serverCustomers,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+    loading: serverLoading,
+    refresh, // Extracted refresh function
+  } = useServerSearch<CustomerReading>(
+    () => adminService.getMeterReadingCustomers({ month: month.slice(0, 7) }),
+    { initialPage: 1, initialLimit: 10 }
+  );
 
-  const fetchCustomers = async () => {
-    try {
-      setLoading(true);
-      const res = await adminService.getMeterReadingCustomers({ month: month.slice(0, 7) });
-      const customersData = res.data.data || res.data.customers || [];
-      setCustomers(customersData);
-      
-      const initialReadings: Record<number, string> = {};
-      customersData.forEach((c: CustomerReading) => {
-        if (c.already_recorded_reading !== null) {
-          initialReadings[c.customer_id] = String(c.already_recorded_reading);
-        }
-      });
-      setReadings(initialReadings);
-    } catch (err: any) {
-      addToast(err.response?.data?.message || 'Failed to fetch customers', 'error');
-      setCustomers([]);
-      setReadings({});
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    setLoading(serverLoading);
+  }, [serverLoading]);
 
-  useEffect(() => { 
-    fetchCustomers(); 
-  }, [month]);
+  useEffect(() => {
+    const customersData = serverCustomers || [];
+    setCustomers(customersData);
+    const initialReadings: Record<number, string> = {};
+    customersData.forEach((c: CustomerReading) => {
+      if (c.already_recorded_reading !== null && c.already_recorded_reading !== undefined) {
+        initialReadings[c.customer_id] = String(c.already_recorded_reading);
+      }
+    });
+    setReadings(initialReadings);
+  }, [serverCustomers]);
 
   const handleReadingChange = (customerId: number, value: string) => {
     setReadings(prev => ({ ...prev, [customerId]: value }));
@@ -95,19 +101,7 @@ export default function MeterReadings() {
     closeModal();
   };
 
-  const {
-    paginatedData: paginatedCustomers,
-    totalItems,
-    totalPages,
-    hasPrev,
-    hasNext,
-    currentPage,
-    itemsPerPage,
-    searchTerm,
-    setSearchTerm,
-    setCurrentPage,
-    setItemsPerPage,
-  } = useClientSearch<CustomerReading>(customers, ['full_name', 'account_number', 'meter_number'], 10 as number);
+  const paginatedCustomers = customers || [];
 
   const handleSave = async () => {
     try {
@@ -129,7 +123,7 @@ export default function MeterReadings() {
       });
       const successMessage = response.data?.message || `Successfully saved ${payload.length} meter readings!`;
       addToast(successMessage, 'success');
-      await fetchCustomers(); 
+      await refresh(); // Replaced fetchCustomers with the hook's refresh
     } catch (err: any) {
       addToast(err.response?.data?.message || 'Failed to save readings', 'error');
     } finally {
@@ -170,7 +164,7 @@ export default function MeterReadings() {
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <SearchBar value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search by customer name, meter number..." />
+        <SearchBar value={searchTerm} onChange={(e: { target: { value: string; }; }) => setSearchTerm(e.target.value)} placeholder="Search by customer name, meter number..." />
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
@@ -231,16 +225,15 @@ export default function MeterReadings() {
         </div>
       </div>
 
-      {/* Pagination Controls */}
       {totalItems > 0 && (
         <PaginationControls
           currentPage={currentPage}
           totalPages={totalPages}
           hasPrev={hasPrev}
           hasNext={hasNext}
-          onPageChange={(n) => setCurrentPage(n)}
+          onPageChange={(n: SetStateAction<number>) => setCurrentPage(n)}
           itemsPerPage={itemsPerPage}
-          onItemsPerPageChange={(n) => setItemsPerPage(n)}
+          onItemsPerPageChange={(n: number) => setItemsPerPage(n)}
           totalItems={totalItems}
         />
       )}
@@ -251,7 +244,6 @@ export default function MeterReadings() {
         </div>
       )}
 
-      {/* Reading Modal */}
       {modalData.isOpen && modalData.customer && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">

@@ -17,17 +17,10 @@ class Contribution extends BaseModel {
       const firstDay = monthDate.clone().startOf('month').format('YYYY-MM-DD');
       
       // Get contribution settings
-      const settingsQuery = `
-        SELECT setting_key, setting_value 
-        FROM system_settings 
-        WHERE setting_key IN ('monthly_contribution_amount', 'contribution_due_days')
-      `;
-      const settings = await executeQuery(settingsQuery);
-      const settingsMap = {};
-      settings.forEach(s => settingsMap[s.setting_key] = s.setting_value);
-      
-      const contributionAmount = parseFloat(settingsMap.monthly_contribution_amount) || 100.00;
-      const dueDays = parseInt(settingsMap.contribution_due_days) || 30;
+      const dueDays = parseInt((await executeQuery(
+        `SELECT setting_value FROM system_settings WHERE setting_key = 'contribution_due_days' LIMIT 1`
+      ))[0]?.setting_value, 10) || 30;
+      const contributionAmount = 20500.00;
       const dueDate = monthDate.clone().add(dueDays, 'days').format('YYYY-MM-DD');
 
       // Get customers to create contributions for

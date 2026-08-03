@@ -224,22 +224,22 @@ class Admin extends BaseModel {
     }
   }
 
-  // Get customers with outstanding balances
+// Get customers with outstanding balances
   async getOutstandingCustomers(limit = 50) {
     try {
       const query = `
         SELECT 
           c.id, c.account_number, c.full_name, c.phone,
-          COALESCE(SUM(b.total_amount), 0) as outstanding_bills,
-          COALESCE(SUM(f.amount), 0) as outstanding_fines,
-          COALESCE(SUM(cont.amount_required - cont.amount_paid), 0) as outstanding_contributions,
-          (COALESCE(SUM(b.total_amount), 0) + COALESCE(SUM(f.amount), 0) + COALESCE(SUM(cont.amount_required - cont.amount_paid), 0)) as total_outstanding
+          COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) as outstanding_bills,
+          COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) as outstanding_fines,
+          COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0) as outstanding_contributions,
+          (
+            COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) +
+            COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) +
+            COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0)
+          ) as total_outstanding
         FROM customers c
-        LEFT JOIN bills b ON c.id = b.customer_id AND b.status != 'paid'
-        LEFT JOIN applied_fines f ON c.id = f.customer_id AND f.status != 'paid'
-        LEFT JOIN contributions cont ON c.id = cont.customer_id AND cont.status != 'completed'
         WHERE c.is_active = TRUE
-        GROUP BY c.id, c.account_number, c.full_name, c.phone
         HAVING total_outstanding > 0
         ORDER BY total_outstanding DESC
         LIMIT ${parseInt(limit)}
@@ -259,7 +259,6 @@ class Admin extends BaseModel {
     }
   }
 
-// Admin.js — ADD this method to the existing Admin class
   /**
    * Comprehensive dashboard data: KPIs, revenue trend, distribution,
    * top/poor performers, and recent transactions — all in parallel.
@@ -487,20 +486,16 @@ class Admin extends BaseModel {
     }));
   }
 
-  /** Top 5 customers by outstanding debt (bills + fines + contributions) */
+/** Top 5 customers by outstanding debt (bills + fines + contributions) */
   async _getPoorPerformers(limit = 5) {
     const rows = await executeQuery(`
       SELECT
         c.id, c.account_number, c.full_name, c.zone,
-        COALESCE(SUM(b.total_amount), 0) as outstanding_bills,
-        COALESCE(SUM(f.amount), 0) as outstanding_fines,
-        COALESCE(SUM(cont.amount_required - cont.amount_paid), 0) as outstanding_contributions
+        COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status IN ('pending', 'overdue', 'partially_paid')), 0) as outstanding_bills,
+        COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status = 'pending'), 0) as outstanding_fines,
+        COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0) as outstanding_contributions
       FROM customers c
-      LEFT JOIN bills b ON c.id = b.customer_id AND b.status IN ('pending', 'overdue', 'partially_paid')
-      LEFT JOIN applied_fines f ON c.id = f.customer_id AND f.status = 'pending'
-      LEFT JOIN contributions cont ON c.id = cont.customer_id AND cont.status != 'completed'
       WHERE c.is_active = TRUE
-      GROUP BY c.id, c.account_number, c.full_name, c.zone
       HAVING (outstanding_bills + outstanding_fines + outstanding_contributions) > 0
       ORDER BY (outstanding_bills + outstanding_fines + outstanding_contributions) DESC
       LIMIT ${parseInt(limit)}

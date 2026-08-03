@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, FC, ReactNode } from 'react';
 import {
   Wallet, AlertCircle, TrendingUp, Users,
   ArrowUpRight, ArrowDownRight, Minus,
@@ -8,11 +8,12 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
+import { useQuery } from '@tanstack/react-query';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
 // ---------------------------------------------------------------------------
-// Types — mirror the GET /api/v1/admin/dashboard-comprehensive response
+// Types
 // ---------------------------------------------------------------------------
 
 interface RevenueTrendPoint {
@@ -107,13 +108,11 @@ const formatCurrencyCompact = (amount: number) => {
 const formatDate = (dateStr: string) =>
   new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-// Distribution slice colors — sky blue leads as the brand accent, with
-// supporting hues that stay readable against it
 const DISTRIBUTION_COLORS = {
-  bills: '#0284c7',         // sky-600 — primary accent, matches brand
-  contributions: '#0d9488', // teal-600
-  fines: '#f59e0b',         // amber-500
-  advance: '#cbd5e1'        // slate-300
+  bills: '#0284c7',         
+  contributions: '#0d9488', 
+  fines: '#f59e0b',         
+  advance: '#cbd5e1'        
 };
 
 const STATUS_BADGE_STYLES: Record<string, string> = {
@@ -127,32 +126,40 @@ const STATUS_BADGE_STYLES: Record<string, string> = {
 // Main component
 // ---------------------------------------------------------------------------
 
-const AdminDashboard: React.FC = () => {
-  const [data, setData] = useState<ComprehensiveDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+const AdminDashboard: FC = () => {
   const [period, setPeriod] = useState<Period>('30d');
   const { addToast } = useToast();
 
+  const {
+    data,
+    isLoading: loading,
+    isError
+  } = useQuery({
+    queryKey: ['adminDashboard', period],
+    queryFn: async () => {
+      const response = await adminService.getDashboardComprehensive(period);
+      if (!response.data?.success) throw new Error('Failed to load dashboard data');
+      return response.data.data as ComprehensiveDashboardData;
+    },
+    staleTime: 5 * 60 * 1000, 
+    refetchOnWindowFocus: false, 
+  });
+
+  // Fetch zone-specific dynamic ledger breakdowns
+  const { data: zoneSummaryData } = useQuery({
+    queryKey: ['zoneFinancialSummary'],
+    queryFn: async () => {
+      const response = await adminService.getZoneFinancialSummary();
+      return response.data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   useEffect(() => {
-    let isMounted = true;
-
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const response = await adminService.getDashboardComprehensive(period);
-        if (isMounted && response.data?.success) {
-          setData(response.data.data);
-        }
-      } catch (err) {
-        if (isMounted) addToast('Failed to load dashboard metrics', 'error');
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    fetchData();
-    return () => { isMounted = false; };
-  }, [period, addToast]);
+    if (isError) {
+      addToast('Failed to load dashboard metrics', 'error');
+    }
+  }, [isError, addToast]);
 
   const distributionChartData = useMemo(() => {
     if (!data) return [];
@@ -172,7 +179,6 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-8">
-      {/* Header / period selector */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Dashboard</h1>
@@ -181,7 +187,6 @@ const AdminDashboard: React.FC = () => {
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
-      {/* KPI Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
           title="Total Revenue"
@@ -211,7 +216,19 @@ const AdminDashboard: React.FC = () => {
         />
       </div>
 
-      {/* Charts Row */}
+      {/* Dynamic Zone Breakdown Cards (Auto-updates balances per zone like Nyakahura) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {zoneSummaryData?.data?.map((zoneItem: any) => (
+          <div key={zoneItem.zone} className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-sm">
+            <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wide">{zoneItem.zone}</h3>
+            <p className="text-xl font-semibold text-slate-900 mt-0.5">
+              {formatCurrency(Number(zoneItem.zone_total_debt || 0))}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">Active Customers: {zoneItem.total_customers}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -237,7 +254,7 @@ const AdminDashboard: React.FC = () => {
             {revenueTrend.length === 0 ? (
               <EmptyChartState message="No completed payments recorded yet" />
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                 <AreaChart data={revenueTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
@@ -276,7 +293,6 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Distribution donut */}
         <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-slate-900 mb-1">Payment Distribution</h2>
           <p className="text-xs text-slate-500 mb-4">Where collected funds were allocated</p>
@@ -285,7 +301,7 @@ const AdminDashboard: React.FC = () => {
               <EmptyChartState message="No allocations recorded yet" />
             ) : (
               <>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <PieChart>
                     <Pie
                       data={distributionChartData}
@@ -331,7 +347,6 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Performers Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <PerformersCard
           title="Top Performers"
@@ -339,19 +354,26 @@ const AdminDashboard: React.FC = () => {
           icon={<Trophy className="w-4 h-4 text-emerald-600" />}
           emptyMessage="No completed payments to rank yet"
         >
-          {topPerformers.map((p, idx) => (
-            <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-sky-50/40 transition-colors">
-              <td className="py-3 pl-1 pr-2 text-xs font-semibold text-sky-600/70 w-6">{idx + 1}</td>
-              <td className="py-3 pr-3">
-                <p className="text-sm font-medium text-slate-900 truncate max-w-[180px]" title={p.name}>{p.name}</p>
-                <p className="text-xs text-slate-500">{p.accountNumber} · {p.zone}</p>
-              </td>
-              <td className="py-3 pr-1 text-right">
-                <p className="text-sm font-semibold text-slate-900">{formatCurrency(p.totalPaid)}</p>
-                <p className="text-xs text-slate-500">{p.paymentCount} payment{p.paymentCount !== 1 ? 's' : ''}</p>
-              </td>
-            </tr>
-          ))}
+          {topPerformers.map((p: any, idx) => {
+            const name = p.name || p.full_name || p.customer_name || 'Unknown';
+            const account = p.accountNumber || p.account_number || 'N/A';
+            const totalPaid = p.totalPaid ?? p.total_paid ?? 0;
+            const count = p.paymentCount ?? p.payment_count ?? 0;
+
+            return (
+              <tr key={p.id || idx} className="border-b border-slate-50 last:border-0 hover:bg-sky-50/40 transition-colors">
+                <td className="py-3 pl-1 pr-2 text-xs font-semibold text-sky-600/70 w-6">{idx + 1}</td>
+                <td className="py-3 pr-3">
+                  <p className="text-sm font-medium text-slate-900 truncate max-w-[180px]" title={name}>{name}</p>
+                  <p className="text-xs text-slate-500">{account} · {p.zone || 'N/A'}</p>
+                </td>
+                <td className="py-3 pr-1 text-right">
+                  <p className="text-sm font-semibold text-slate-900">{formatCurrency(totalPaid)}</p>
+                  <p className="text-xs text-slate-500">{count} payment{count !== 1 ? 's' : ''}</p>
+                </td>
+              </tr>
+            );
+          })}
         </PerformersCard>
 
         <PerformersCard
@@ -360,25 +382,31 @@ const AdminDashboard: React.FC = () => {
           icon={<AlertTriangle className="w-4 h-4 text-red-600" />}
           emptyMessage="No outstanding balances — collections are current"
         >
-          {poorPerformers.map((p, idx) => (
-            <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-sky-50/40 transition-colors">
-              <td className="py-3 pl-1 pr-2 text-xs font-semibold text-sky-600/70 w-6">{idx + 1}</td>
-              <td className="py-3 pr-3">
-                <p className="text-sm font-medium text-slate-900 truncate max-w-[180px]" title={p.name}>{p.name}</p>
-                <p className="text-xs text-slate-500">{p.accountNumber} · {p.zone}</p>
-              </td>
-              <td className="py-3 pr-1 text-right">
-                <p className="text-sm font-semibold text-red-600">{formatCurrency(p.totalDebt)}</p>
-                <p className="text-xs text-slate-500" title="Bills + fines + contributions owed">
-                  Bills {formatCurrencyCompact(p.outstandingBills)}
-                </p>
-              </td>
-            </tr>
-          ))}
+          {poorPerformers.map((p: any, idx) => {
+            const name = p.name || p.full_name || p.customer_name || 'Unknown';
+            const account = p.accountNumber || p.account_number || 'N/A';
+            const totalDebt = p.totalDebt ?? p.total_debt ?? p.outstanding_balance ?? 0;
+            const bills = p.outstandingBills ?? p.outstanding_bills ?? 0;
+
+            return (
+              <tr key={p.id || idx} className="border-b border-slate-50 last:border-0 hover:bg-sky-50/40 transition-colors">
+                <td className="py-3 pl-1 pr-2 text-xs font-semibold text-sky-600/70 w-6">{idx + 1}</td>
+                <td className="py-3 pr-3">
+                  <p className="text-sm font-medium text-slate-900 truncate max-w-[180px]" title={name}>{name}</p>
+                  <p className="text-xs text-slate-500">{account} · {p.zone || 'N/A'}</p>
+                </td>
+                <td className="py-3 pr-1 text-right">
+                  <p className="text-sm font-semibold text-red-600">{formatCurrency(totalDebt)}</p>
+                  <p className="text-xs text-slate-500" title="Bills + fines + contributions owed">
+                    Bills {formatCurrencyCompact(bills)}
+                  </p>
+                </td>
+              </tr>
+            );
+          })}
         </PerformersCard>
       </div>
 
-      {/* Recent Transactions */}
       <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
         <div className="flex items-center gap-2.5 px-5 py-4 border-b border-slate-100">
           <div className="p-1.5 bg-sky-50 rounded-lg text-sky-600">
@@ -422,12 +450,11 @@ const AdminDashboard: React.FC = () => {
     </div>
   );
 };
-
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-const PeriodSelector: React.FC<{ value: Period; onChange: (p: Period) => void }> = ({ value, onChange }) => {
+const PeriodSelector: FC<{ value: Period; onChange: (p: Period) => void }> = ({ value, onChange }) => {
   const options: { value: Period; label: string }[] = [
     { value: '7d', label: '7D' },
     { value: '30d', label: '30D' },
@@ -453,10 +480,10 @@ const PeriodSelector: React.FC<{ value: Period; onChange: (p: Period) => void }>
   );
 };
 
-const KPICard: React.FC<{
+const KPICard: FC<{
   title: string;
   value: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   trend?: number | null;
   trendLabel?: string | null;
   tooltip?: string;
@@ -491,14 +518,14 @@ const KPICard: React.FC<{
   </div>
 );
 
-const PerformersCard: React.FC<{
+const PerformersCard: FC<{
   title: string;
   subtitle: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   emptyMessage: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }> = ({ title, subtitle, icon, emptyMessage, children }) => {
-  const hasRows = React.Children.count(children) > 0;
+  const hasRows = Array.isArray(children) ? children.length > 0 : !!children;
   return (
     <div className="bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden">
       <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
@@ -522,7 +549,7 @@ const PerformersCard: React.FC<{
   );
 };
 
-const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
+const StatusBadge: FC<{ status: string }> = ({ status }) => (
   <span
     className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset capitalize ${
       STATUS_BADGE_STYLES[status] ?? STATUS_BADGE_STYLES.reversed
@@ -532,13 +559,13 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
   </span>
 );
 
-const EmptyChartState: React.FC<{ message: string }> = ({ message }) => (
+const EmptyChartState: FC<{ message: string }> = ({ message }) => (
   <div className="h-full flex items-center justify-center text-sm text-slate-400 border border-dashed border-sky-100 bg-sky-50/30 rounded-lg">
     {message}
   </div>
 );
 
-const DashboardSkeleton: React.FC = () => (
+const DashboardSkeleton: FC = () => (
   <div className="space-y-6 animate-pulse">
     <div className="h-8 w-48 bg-sky-100/70 rounded" />
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -553,7 +580,7 @@ const DashboardSkeleton: React.FC = () => (
   </div>
 );
 
-const DashboardEmptyState: React.FC = () => (
+const DashboardEmptyState: FC = () => (
   <div className="py-16 text-center">
     <p className="text-sm text-slate-500">Couldn't load dashboard data. Try refreshing the page.</p>
   </div>

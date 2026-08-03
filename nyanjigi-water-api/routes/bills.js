@@ -1,10 +1,11 @@
 const express = require('express');
 const { BillController } = require('../controllers');
 const { Bill } = require('../models');
-const { verifyAdmin, verifyCustomer } = require('../middleware/auth');
+const { verifyAdmin, verifyCustomer, verifyToken } = require('../middleware/auth');
 const { handleValidationErrors, asyncHandler } = require('../middleware/errorHandler');
 const ValidationSchemas = require('../utils/validation');
 const ApiResponse = require('../utils/response');
+const { param, body, query } = require('express-validator');
 
 const router = express.Router();
 
@@ -35,8 +36,10 @@ router.post('/generate',
 router.post('/generate/:customerId',
   verifyAdmin,
   [
-    ValidationSchemas.idParam[0],
-    require('express-validator').body('billing_month')
+    param('customerId')
+      .isInt({ min: 1 })
+      .withMessage('Valid customer ID is required'),
+    body('billing_month')
       .isISO8601()
       .withMessage('Valid billing month is required')
   ],
@@ -52,10 +55,10 @@ router.post('/generate/:customerId',
 router.post('/preview',
   verifyAdmin,
   [
-    require('express-validator').body('customer_id')
+    body('customer_id')
       .isInt({ min: 1 })
       .withMessage('Valid customer ID is required'),
-    require('express-validator').body('billing_month')
+    body('billing_month')
       .isISO8601()
       .toDate()
       .withMessage('Valid billing month is required')
@@ -75,19 +78,19 @@ router.get('/',
   verifyAdmin,
   [
     ...ValidationSchemas.pagination,
-    require('express-validator').query('customer_id')
+    query('customer_id')
       .optional()
       .isInt({ min: 1 })
       .withMessage('Valid customer ID is required'),
-    require('express-validator').query('status')
+    query('status')
       .optional()
       .isIn(['pending', 'paid', 'overdue', 'partially_paid'])
       .withMessage('Valid status is required'),
-    require('express-validator').query('billing_month')
+    query('billing_month')
       .optional()
       .isISO8601()
       .withMessage('Valid billing month format required (YYYY-MM-DD)'),
-    require('express-validator').query('overdue')
+    query('overdue')
       .optional()
       .isBoolean()
       .withMessage('Overdue must be boolean')
@@ -104,7 +107,7 @@ router.get('/',
 router.get('/stats',
   verifyAdmin,
   [
-    require('express-validator').query('period')
+    query('period')
       .optional()
       .isIn(['daily', 'monthly', 'yearly'])
       .withMessage('Period must be daily, monthly, or yearly')
@@ -121,7 +124,7 @@ router.get('/stats',
 router.get('/overdue',
   verifyAdmin,
   [
-    require('express-validator').query('limit')
+    query('limit')
       .optional()
       .isInt({ min: 1, max: 500 })
       .withMessage('Limit must be between 1 and 500')
@@ -138,11 +141,11 @@ router.get('/overdue',
 router.get('/summary',
   verifyAdmin,
   [
-    require('express-validator').query('year')
+    query('year')
       .optional()
       .isInt({ min: 2020, max: 2030 })
       .withMessage('Valid year is required'),
-    require('express-validator').query('month')
+    query('month')
       .optional()
       .isInt({ min: 1, max: 12 })
       .withMessage('Valid month is required (1-12)')
@@ -159,19 +162,19 @@ router.get('/summary',
 router.get('/export',
   verifyAdmin,
   [
-    require('express-validator').query('format')
+    query('format')
       .optional()
       .isIn(['json', 'csv'])
       .withMessage('Format must be json or csv'),
-    require('express-validator').query('status')
+    query('status')
       .optional()
       .isIn(['pending', 'paid', 'overdue', 'partially_paid'])
       .withMessage('Valid status is required'),
-    require('express-validator').query('billing_month')
+    query('billing_month')
       .optional()
       .isISO8601()
       .withMessage('Valid billing month format required'),
-    require('express-validator').query('customer_id')
+    query('customer_id')
       .optional()
       .isInt({ min: 1 })
       .withMessage('Valid customer ID is required')
@@ -185,11 +188,15 @@ router.get('/export',
 /**
  * @route   GET /api/v1/bills/:billId
  * @desc    Get specific bill details
- * @access  Private (Admin only)
+ * @access  Private (Admin & Customer)
  */
 router.get('/:billId',
-  verifyAdmin,
-  ValidationSchemas.idParam,
+  verifyToken, // Changed from verifyAdmin
+  [
+    param('billId')
+      .isInt({ min: 1 })
+      .withMessage('Valid bill ID is required')
+  ],
   handleValidationErrors,
   asyncHandler(BillController.getBillDetails)
 );
@@ -202,8 +209,10 @@ router.get('/:billId',
 router.put('/:billId/status',
   verifyAdmin,
   [
-    ValidationSchemas.idParam[0],
-    require('express-validator').body('status')
+    param('billId')
+      .isInt({ min: 1 })
+      .withMessage('Valid bill ID is required'),
+    body('status')
       .isIn(['pending', 'paid', 'overdue', 'partially_paid'])
       .withMessage('Valid status is required')
   ],
@@ -219,8 +228,10 @@ router.put('/:billId/status',
 router.delete('/:billId',
   verifyAdmin,
   [
-    ValidationSchemas.idParam[0],
-    require('express-validator').body('confirm')
+    param('billId')
+      .isInt({ min: 1 })
+      .withMessage('Valid bill ID is required'),
+    body('confirm')
       .isBoolean()
       .custom(value => {
         if (!value) {
@@ -244,13 +255,13 @@ router.delete('/:billId',
 router.put('/bulk/status',
   verifyAdmin,
   [
-    require('express-validator').body('bill_ids')
+    body('bill_ids')
       .isArray({ min: 1 })
       .withMessage('Bill IDs array is required'),
-    require('express-validator').body('bill_ids.*')
+    body('bill_ids.*')
       .isInt({ min: 1 })
       .withMessage('Valid bill IDs are required'),
-    require('express-validator').body('status')
+    body('status')
       .isIn(['pending', 'paid', 'overdue', 'partially_paid'])
       .withMessage('Valid status is required')
   ],
@@ -263,12 +274,14 @@ router.put('/bulk/status',
 /**
  * @route   GET /api/v1/bills/customer/:customerId
  * @desc    Get bills for specific customer
- * @access  Private (Admin only)
+ * @access  Private (Admin & Customer)
  */
 router.get('/customer/:customerId',
-  verifyAdmin,
+  verifyToken, // Changed from verifyAdmin
   [
-    ValidationSchemas.idParam[0],
+    param('customerId')
+      .isInt({ min: 1 })
+      .withMessage('Valid customer ID is required'),
     ...ValidationSchemas.pagination
   ],
   handleValidationErrors,
@@ -278,11 +291,15 @@ router.get('/customer/:customerId',
 /**
  * @route   GET /api/v1/bills/customer/:customerId/summary
  * @desc    Get billing summary for specific customer
- * @access  Private (Admin only)
+ * @access  Private (Admin & Customer)
  */
 router.get('/customer/:customerId/summary',
-  verifyAdmin,
-  ValidationSchemas.idParam,
+  verifyToken, // Changed from verifyAdmin
+  [
+    param('customerId')
+      .isInt({ min: 1 })
+      .withMessage('Valid customer ID is required')
+  ],
   handleValidationErrors,
   asyncHandler(BillController.getCustomerBillSummary)
 );

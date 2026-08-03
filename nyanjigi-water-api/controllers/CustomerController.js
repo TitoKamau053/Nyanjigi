@@ -240,6 +240,16 @@ class CustomerController {
     }
   }
 
+  // Get zone financial breakdown for dashboard stats
+  static async getZoneFinancialSummary(req, res) {
+    try {
+      const summary = await Customer.getZoneFinancialSummary();
+      return ApiResponse.success(res, summary, 'Zone financial summary retrieved successfully');
+    } catch (error) {
+      return ApiResponse.error(res, error.message, 500);
+    }
+  }
+  
   // Get customer account summary
   static async getAccountSummary(req, res) {
     try {
@@ -281,7 +291,7 @@ class CustomerController {
   // ADMIN FUNCTIONS FOR CUSTOMER MANAGEMENT
 
   // Create new customer (Admin only)
-static async createCustomer(req, res) {
+  static async createCustomer(req, res) {
     try {
       const { initial_balance, ...customerData } = req.body; // Extract initial_balance
       const newCustomer = await Customer.createCustomer(customerData);

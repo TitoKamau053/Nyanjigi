@@ -38,7 +38,7 @@ class Bill extends BaseModel {
 
       const paymentDueDays = parseInt(settingsMap.payment_due_days, 10) || 5;
       const monthlyContributionAmount = parseFloat(settingsMap.monthly_contribution_amount) || 0;
-      const totalContributionTarget = parseFloat(settingsMap.total_contribution_target) || 18500.00;
+      const totalContributionTarget = parseFloat(settingsMap.total_contribution_target) || 20500.00;
       const ratePerUnit = parseFloat(settingsMap.water_rate_per_unit) || 50.00;
       
       //Move periodStart and periodEnd definitions UP HERE
@@ -100,16 +100,21 @@ class Bill extends BaseModel {
       validUnits = unitsConsumed > 0 ? unitsConsumed : 0; 
       currentCharges = validUnits * ratePerUnit;
   } else {
-      // CURRENT STATE: Ignore missing readings and apply the flat rate to everyone
-      // Changed from settingsMap.flat_rate to settingsMap.default_flat_rate
-      currentCharges = parseFloat(settingsMap.default_flat_rate) || 0; 
+      // Apply tiered flat rate pricing when meter readings are not available.
+      if (customer.customer_type === 'institution') {
+        currentCharges = 1000.00;
+      } else if (customer.customer_type === 'normal') {
+        currentCharges = 300.00;
+      } else {
+        currentCharges = parseFloat(settingsMap.default_flat_rate) || 0;
+      }
   }
 
     const previousOutstanding = parseFloat(customer.previous_balance || 0);
     const outstandingFines = parseFloat(customer.outstanding_fines || 0);
     const contributionsPaid = parseFloat(customer.total_contributions_paid || 0);
     const contributionOutstanding = Math.max(0, totalContributionTarget - contributionsPaid);
-    const totalAmount = previousOutstanding + currentCharges + outstandingFines;
+    const totalAmount = currentCharges;
 
     notifications.push({
       customer_id: customer.id,
@@ -132,9 +137,9 @@ class Bill extends BaseModel {
       bill_number: this.generateBillNumber(customer.id, billingDate.toDate()),
       billing_period_start: periodStart,
       billing_period_end: periodEnd,
-      previous_balance: previousOutstanding,
+      previous_balance: 0,
       current_charges: currentCharges,
-      fines_applied: outstandingFines,
+      fines_applied: 0,
       total_amount: totalAmount,
       due_date: dueDate,
       status: 'pending',

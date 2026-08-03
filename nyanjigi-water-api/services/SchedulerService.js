@@ -26,9 +26,11 @@ class SchedulerService {
       await this.scheduleMonthlyBilling();
       // await this.scheduleMonthlyContributions();  // Disabled: manual admin trigger only
       // await this.scheduleOverdueNotifications();  // Disabled: manual admin trigger only
-      await this.scheduleFineApplication();
+      // Fine application is now manual-only and must not run automatically
+      // await this.scheduleFineApplication();
       await this.scheduleBillStatusUpdates();
-      await this.scheduleScheduledNotifications();
+      // Automatic scheduled notifications are disabled
+      // await this.scheduleScheduledNotifications();
       await this.scheduleSystemMaintenance();
 
       this.isInitialized = true;
@@ -102,174 +104,9 @@ class SchedulerService {
   // }
 
 // Calculate and apply fines after grace period has elapsed
+// Fine application is now manual-only and must not run automatically.
 async scheduleFineApplication() {
-  const task = cron.schedule('0 10 * * *', async () => {
-    try {
-      // Get system settings
-      const billingSettings = await SystemSettings.getBillingSettings();
-      const graceDays = billingSettings.late_fine_grace_days || 5;
-      
-      // Get bills that are overdue AFTER grace period
-      const overdueQuery = `
-        SELECT 
-          b.id as bill_id,
-          b.bill_number,
-          b.total_amount,
-          b.due_date,
-          b.customer_id,
-          c.full_name,
-          c.phone,
-          c.account_number,
-          DATEDIFF(CURDATE(), b.due_date) as days_past_due,
-          -- Check if fine already applied
-          EXISTS(
-            SELECT 1 FROM applied_fines af 
-            WHERE af.bill_id = b.id 
-            AND af.fine_type_id = (
-              SELECT id FROM fine_types 
-              WHERE fine_type = 'late_payment' 
-              LIMIT 1
-            )
-          ) as fine_exists
-        FROM bills b
-        JOIN customers c ON b.customer_id = c.id
-        WHERE b.status IN ('pending', 'overdue', 'partially_paid')
-        AND DATE_ADD(b.due_date, INTERVAL ? DAY) < CURDATE()
-        AND c.is_active = TRUE
-        HAVING fine_exists = 0
-        ORDER BY b.due_date ASC
-        LIMIT 100
-      `;
-      
-      const { executeQuery } = require('../config/database');
-      const overdueBills = await executeQuery(overdueQuery, [graceDays]);
-      
-      if (overdueBills.length === 0) {
-        console.log('No bills eligible for fine application');
-        await this.logScheduledActivity('fine_application', 'success', {
-          fines_applied: 0,
-          grace_period_days: graceDays,
-          message: 'No eligible bills found'
-        });
-        return;
-      }
-      
-      console.log(`Found ${overdueBills.length} bills eligible for fines`);
-      
-      // Get late payment fine type
-      const fineTypeQuery = `
-        SELECT * FROM fine_types 
-        WHERE fine_type = 'late_payment' 
-        AND is_active = TRUE 
-        LIMIT 1
-      `;
-      const fineTypes = await executeQuery(fineTypeQuery);
-      
-      if (fineTypes.length === 0) {
-        console.warn('No active late payment fine type found');
-        await this.logScheduledActivity('fine_application', 'success', {
-          fines_applied: 0,
-          message: 'Skipped: late payment fine type not configured'
-        });
-        return;
-      }
-      
-      const fineType = fineTypes[0];
-      let appliedFines = 0;
-      let failedFines = 0;
-      const fineDetails = [];
-      
-      // Process each overdue bill
-      for (const bill of overdueBills) {
-        try {
-          // Calculate fine amount
-          let fineAmount = parseFloat(fineType.amount);
-          
-          if (fineType.is_percentage) {
-            fineAmount = (parseFloat(bill.total_amount) * fineAmount) / 100;
-          }
-          
-          // Minimum fine amount validation
-          if (fineAmount < 1) {
-            console.warn(`Skipping fine for bill ${bill.bill_number}: Amount too small (${fineAmount})`);
-            continue;
-          }
-          
-          // Apply fine
-          const applyFineQuery = `
-            INSERT INTO applied_fines 
-            (customer_id, bill_id, fine_type_id, amount, reason, applied_date, status) 
-            VALUES (?, ?, ?, ?, ?, CURDATE(), 'pending')
-          `;
-          
-          const reason = `Late payment fine for bill ${bill.bill_number}. ` +
-                        `Due: ${moment(bill.due_date).format('MMM DD, YYYY')}. ` +
-                        `${bill.days_past_due} days overdue (${graceDays} days grace period).`;
-          
-          await executeQuery(applyFineQuery, [
-            bill.customer_id,
-            bill.bill_id,
-            fineType.id,
-            fineAmount,
-            reason
-          ]);
-          
-          // Update bill status to overdue if still pending
-          if (bill.status === 'pending') {
-            await Bill.updateBillStatus(bill.bill_id, 'overdue');
-          }
-          
-          appliedFines++;
-          
-          fineDetails.push({
-            bill_number: bill.bill_number,
-            customer: bill.full_name,
-            account: bill.account_number,
-            days_overdue: bill.days_past_due,
-            fine_amount: fineAmount
-          });
-          
-          console.log(`Applied fine of KES ${fineAmount} to bill ${bill.bill_number}`);
-          
-        } catch (error) {
-          failedFines++;
-          console.error(`Failed to apply fine for bill ${bill.bill_id}:`, error.message);
-        }
-      }
-      
-      // Log activity with detailed summary
-      await this.logScheduledActivity('fine_application', 'success', {
-        fines_applied: appliedFines,
-        fines_failed: failedFines,
-        grace_period_days: graceDays,
-        eligible_bills: overdueBills.length,
-        fine_type: fineType.fine_name,
-        fine_amount: fineType.amount,
-        is_percentage: fineType.is_percentage,
-        details: fineDetails.slice(0, 10) // Log first 10 for audit
-      });
-      
-      console.log(`Fine application completed: ${appliedFines} applied, ${failedFines} failed`);
-      
-      // Notification sending for fines is now manual via admin API
-      // if (appliedFines > 0 && overdueBills.length > 0) {
-      //   Admins will send fine notifications manually to customers
-      // }
-      
-    } catch (error) {
-      console.error('Fine application failed:', error);
-      await this.logScheduledActivity('fine_application', 'failed', {
-        error: error.message,
-        stack: error.stack
-      });
-    }
-  }, {
-    scheduled: false,
-    timezone: 'Africa/Nairobi'
-  });
-
-  this.jobs.set('fine_application', task);
-  console.log('Fine application scheduled (daily at 10:00 AM)');
+  console.warn('scheduleFineApplication is disabled. Fines must be applied manually by an administrator.');
 }
 
 // Validate if a bill is eligible for fine application
@@ -352,23 +189,7 @@ async validateFineApplication(billId) {
 
   // Process scheduled notifications (every 5 minutes)
   async scheduleScheduledNotifications() {
-    const task = cron.schedule('*/5 * * * *', async () => {
-      try {
-        const result = await NotificationService.processScheduledNotifications();
-        
-        if (result.processed > 0) {
-          console.log(`Processed ${result.processed} scheduled notifications`);
-        }
-      } catch (error) {
-        console.error('Scheduled notifications processing failed:', error);
-      }
-    }, {
-      scheduled: false,
-      timezone: 'Africa/Nairobi'
-    });
-
-    this.jobs.set('scheduled_notifications', task);
-    console.log('Scheduled notifications processor running (every 5 minutes)');
+    console.warn('scheduleScheduledNotifications is disabled. Automated scheduled notifications are not allowed.');
   }
 
   // Run system maintenance tasks (daily at 2:00 AM)
@@ -519,30 +340,14 @@ async validateFineApplication(billId) {
   // Manual runners for immediate execution
   async runMonthlyBilling() {
     const currentMonth = moment().startOf('month').format('YYYY-MM-DD');
-        const result = await Bill.generateMonthlyBills(currentMonth);
-        
-        if (result.notifications && result.notifications.length > 0) {
-          await NotificationService.sendBillingCycleMessages(result.notifications);
-        }
-        delete result.notifications;
-        
-        return result;
+    const result = await Bill.generateMonthlyBills(currentMonth);
+    delete result.notifications;
+    return result;
   }
 
   async runMonthlyContributions() {
     const currentMonth = moment().startOf('month').format('YYYY-MM-DD');
     const result = await Contribution.generateMonthlyContributions(currentMonth);
-    
-    if (result.generated_count > 0) {
-      const contributions = await Contribution.getContributionsWithPagination(1, result.generated_count, {
-        contribution_month: currentMonth
-      });
-      
-      if (contributions.contributions && contributions.contributions.length > 0) {
-        await NotificationService.sendContributionReminders(contributions.contributions);
-      }
-    }
-    
     return result;
   }
 
@@ -550,85 +355,19 @@ async validateFineApplication(billId) {
     const overdueBills = await Bill.getOverdueBills(500);
     const overdueContributions = await Contribution.getOverdueContributions(500);
     
-    const results = [];
-    
-    if (overdueBills.length > 0) {
-      const billResult = await NotificationService.sendOverdueNotices(overdueBills);
-      results.push({ type: 'bills', count: overdueBills.length, result: billResult });
-    }
-    
-    if (overdueContributions.length > 0) {
-      const contribResult = await NotificationService.sendContributionReminders(overdueContributions);
-      results.push({ type: 'contributions', count: overdueContributions.length, result: contribResult });
-    }
-    
-    return results;
+    return [
+      { type: 'bills', count: overdueBills.length, overdueBills },
+      { type: 'contributions', count: overdueContributions.length, overdueContributions }
+    ];
   }
 
   async runFineApplication() {
-    // Implementation similar to the scheduled task
-    const billingSettings = await SystemSettings.getBillingSettings();
-    const gracePeriods = billingSettings.late_fine_grace_days || 5; // Changed to 5 days as per requirements
-    
-    const { executeQuery } = require('../config/database');
-    
-    const overdueQuery = `
-      SELECT b.*, c.full_name, c.phone, c.account_number
-      FROM bills b
-      JOIN customers c ON b.customer_id = c.id
-      WHERE b.due_date < DATE_SUB(CURDATE(), INTERVAL ? DAY)
-      AND b.status IN ('pending', 'overdue')
-      AND c.is_active = TRUE
-      AND NOT EXISTS (
-        SELECT 1 FROM applied_fines af 
-        WHERE af.bill_id = b.id 
-        AND af.fine_type_id = (SELECT id FROM fine_types WHERE fine_type = 'late_payment' LIMIT 1)
-      )
-      LIMIT 100
-    `;
-    
-    const overdueBills = await executeQuery(overdueQuery, [gracePeriods]);
-    let appliedFines = 0;
-    
-    if (overdueBills.length > 0) {
-      const fineTypeQuery = 'SELECT * FROM fine_types WHERE fine_type = "late_payment" AND is_active = TRUE LIMIT 1';
-      const fineTypes = await executeQuery(fineTypeQuery);
-      
-      if (fineTypes.length > 0) {
-        const fineType = fineTypes[0];
-        
-        for (const bill of overdueBills) {
-          try {
-            let fineAmount = parseFloat(fineType.amount);
-            if (fineType.is_percentage) {
-              fineAmount = (parseFloat(bill.total_amount) * fineAmount) / 100;
-            }
-            
-            const applyFineQuery = `
-              INSERT INTO applied_fines 
-              (customer_id, bill_id, fine_type_id, amount, reason, applied_date, status) 
-              VALUES (?, ?, ?, ?, ?, CURDATE(), 'pending')
-            `;
-            
-            await executeQuery(applyFineQuery, [
-              bill.customer_id,
-              bill.id,
-              fineType.id,
-              fineAmount,
-              `Late payment fine for bill ${bill.bill_number}`
-            ]);
-            
-            await Bill.updateBillStatus(bill.id, 'overdue');
-            appliedFines++;
-            
-          } catch (error) {
-            console.error(`Failed to apply fine for bill ${bill.id}:`, error);
-          }
-        }
-      }
-    }
-    
-    return { eligible_bills: overdueBills.length, applied_fines: appliedFines };
+    console.warn('runFineApplication is disabled. Fine application must be done manually by an administrator.');
+    return {
+      eligible_bills: 0,
+      applied_fines: 0,
+      message: 'Automated fine application is disabled. Use the admin fine workflow instead.'
+    };
   }
 
   async runSystemMaintenance() {

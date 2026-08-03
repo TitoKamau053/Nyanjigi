@@ -39,6 +39,17 @@ SMS Integration: Powered by Africa's Talking API for real-time alerts.
 
 Automated Triggers: Notifications for bill generation, payment receipts, and overdue reminders.
 
+Manual Billing & Penalty Architecture
+This system now enforces strict manual control over billing, penalties, contributions, and SMS dispatch.
+
+- Debt Engine: monthly bills only reflect the current month's charges. Tiered flat-rate pricing is applied as follows:
+  - `normal` customers = KES 300
+  - `institution` customers = KES 1000
+  - Any other customer type falls back to `default_flat_rate` when no meter readings exist.
+- Fines: 100% manual only via Admin UI. All scheduler-based automatic fine generation is disabled.
+- Contributions: fixed at KES 20,500 per customer. Contributions are excluded from automatic advance payment allocations.
+- SMS Policy: automated SMS is disabled globally except for the initial account password/welcome notification. All other SMS dispatches require explicit admin action.
+
 Architecture
 nyanjigi-water-api/
 ├──  config/          # Database connection and pooling

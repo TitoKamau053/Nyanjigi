@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText, Calendar, DollarSign, AlertCircle, Download, Plus, Droplets } from 'lucide-react';
 import SearchBar from '../../components/common/SearchBar';
 import PaginationControls from '../../components/common/PaginationControls';
-import useClientSearch from '../../hooks/useClientSearch';
+import useServerSearch from '../../hooks/useServerSearch';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -31,7 +31,7 @@ interface EditBillModalProps {
   onSave: (updatedBill: Bill) => void;
 }
 
-const EditBillModal: React.FC<EditBillModalProps> = ({ bill, onClose, onSave }) => {
+const EditBillModal = ({ bill, onClose, onSave }: EditBillModalProps) => {
   const [status, setStatus] = useState(bill.status);
 
   const handleSave = () => {
@@ -87,7 +87,6 @@ const EditBillModal: React.FC<EditBillModalProps> = ({ bill, onClose, onSave }) 
 };
 
 const BillingManagement: React.FC = () => {
-  const [allBills, setAllBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -96,55 +95,33 @@ const BillingManagement: React.FC = () => {
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
-
-  // Search and filter state
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
+  const {
+    data: serverBills,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+    loading: serverLoading,
+    refresh,
+  } = useServerSearch<Bill>((params) => adminService.getBills({ page: params.page, limit: params.limit, month: selectedMonth, status: statusFilter === 'all' ? undefined : (statusFilter as any), search: params.search }), { initialPage: 1, initialLimit: 10 });
+
   useEffect(() => {
-    fetchBills();
-  }, [selectedMonth, statusFilter]);
-
-  const fetchBills = async () => {
-    try {
-      setLoading(true);
-
-      const allFetchedBills: Bill[] = [];
-      let currentPage = 1;
-      let totalPages = 1;
-
-      do {
-        const params: any = {
-          month: selectedMonth,
-          page: currentPage,
-          per_page: 100,
-        };
-
-        if (statusFilter !== 'all') {
-          params.status = statusFilter;
-        }
-
-        const response = await adminService.getBills(params);
-        const apiData = response.data.data || response.data;
-        const billsData = apiData.bills || [];
-
-        allFetchedBills.push(...billsData);
-        totalPages = apiData.pagination?.total_pages || 1;
-        currentPage += 1;
-      } while (currentPage <= totalPages);
-
-      setAllBills(allFetchedBills);
-    } catch (error) {
-      addToast('Failed to fetch bills', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
+    setLoading(serverLoading);
+  }, [serverLoading]);
 
   const generateBills = async () => {
     try {
       setLoading(true);
       await adminService.generateBills({ billing_month: selectedMonth + '-01' });
-      await fetchBills();
+      await refresh();
       setShowGenerateModal(false);
       addToast('Bills generated successfully', 'success');
     } catch (error) {
@@ -160,6 +137,7 @@ const BillingManagement: React.FC = () => {
 
   const handleStatusChange = (status: string) => {
     setStatusFilter(status);
+    setCurrentPage(1);
   };
 
   const handleExport = async () => {
@@ -177,14 +155,16 @@ const BillingManagement: React.FC = () => {
     }
   };
 
+  const visibleBills = serverBills || [];
+
   const handleViewBill = (billId: number) => {
-    const bill = allBills.find((b: Bill) => b.id === billId) || null;
+    const bill = visibleBills.find((b: Bill) => b.id === billId) || null;
     setSelectedBill(bill);
     setShowViewModal(true);
   };
 
   const handleEditBill = (billId: number) => {
-    const bill = allBills.find((b: Bill) => b.id === billId) || null;
+    const bill = visibleBills.find((b: Bill) => b.id === billId) || null;
     setSelectedBill(bill);
     setShowEditModal(true);
   };
@@ -194,7 +174,7 @@ const BillingManagement: React.FC = () => {
       try {
         await adminService.updateBillStatus(billId, { status: 'partially_paid' });
         addToast('Bill updated successfully', 'success');
-        await fetchBills();
+        await refresh();
       } catch (error) {
         addToast('Failed to update bill', 'error');
       }
@@ -208,7 +188,7 @@ const BillingManagement: React.FC = () => {
         status: 'paid'
       });
       addToast(`${billIds.length} bills marked as paid`, 'success');
-      await fetchBills();
+      await refresh();
     } catch (error) {
       addToast('Failed to update bills', 'error');
     }
@@ -218,7 +198,7 @@ const BillingManagement: React.FC = () => {
     try {
       await adminService.updateBillStatus(billId, { status: 'paid' });
       addToast('Bill marked as paid', 'success');
-      await fetchBills();
+      await refresh();
     } catch (error) {
       addToast('Failed to mark bill as paid', 'error');
     }
@@ -241,35 +221,11 @@ const BillingManagement: React.FC = () => {
     return bill.status;
   };
 
-  const statusFilteredBills = useMemo(() => {
-    if (statusFilter === 'all') return allBills;
-    return allBills.filter((bill) => {
-      if (statusFilter === 'overdue') {
-        return bill.status !== 'paid' && new Date(bill.due_date) < new Date();
-      }
-      return bill.status === statusFilter;
-    });
-  }, [allBills, statusFilter]);
+  const totalAmount = Math.round(visibleBills.filter((b: Bill) => b.status === 'paid').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
+  const pendingAmount = Math.round(visibleBills.filter((b: Bill) => getDisplayStatus(b) === 'pending').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
+  const overdueAmount = Math.round(visibleBills.filter((b: Bill) => getDisplayStatus(b) === 'overdue').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
 
-  const {
-    paginatedData: visibleBills,
-    totalItems,
-    totalPages,
-    hasPrev,
-    hasNext,
-    currentPage,
-    itemsPerPage,
-    searchTerm,
-    setSearchTerm,
-    setCurrentPage,
-    setItemsPerPage,
-  } = useClientSearch<Bill>(statusFilteredBills, ['customer_name', 'account_number', 'customer_id', 'id'], 10);
-
-  const totalAmount = Math.round(statusFilteredBills.filter(b => b.status === 'paid').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
-  const pendingAmount = Math.round(statusFilteredBills.filter(b => getDisplayStatus(b) === 'pending').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
-  const overdueAmount = Math.round(statusFilteredBills.filter(b => getDisplayStatus(b) === 'overdue').reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0));
-
-  if (loading) {
+  if (loading && visibleBills.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -279,7 +235,6 @@ const BillingManagement: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Billing Management</h1>
@@ -289,23 +244,26 @@ const BillingManagement: React.FC = () => {
           <input
             type="month"
             value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
+            onChange={(e) => {
+              setSelectedMonth(e.target.value);
+              setCurrentPage(1);
+            }}
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <button
             onClick={() => {
-              const pendingBills = statusFilteredBills
+              const pendingBills = visibleBills
                 .filter((bill: Bill) => getDisplayStatus(bill) === 'pending')
                 .map((bill: Bill) => bill.id);
               if (pendingBills.length > 0) {
                 handleBulkMarkPaid(pendingBills);
               } else {
-                addToast('No pending bills to mark as paid', 'warning');
+                addToast('No pending bills on this page to mark as paid', 'warning');
               }
             }}
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
           >
-            Bulk Mark Paid
+            Bulk Mark Paid (This Page)
           </button>
           <button
             onClick={() => setShowGenerateModal(true)}
@@ -317,7 +275,6 @@ const BillingManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Search and Filters */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="md:col-span-2">
           <SearchBar value={searchTerm} onChange={handleSearchChange} placeholder="Search by customer name or account..." />
@@ -339,14 +296,13 @@ const BillingManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <FileText className="w-8 h-8 text-blue-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Bills</p>
+              <p className="text-sm text-gray-600">Total Filtered</p>
               <p className="text-2xl font-bold text-gray-900">{totalItems}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* View Bill Modal */}
       {showViewModal && selectedBill && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-lg">
@@ -409,17 +365,16 @@ const BillingManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Edit Bill Modal */}
       {showEditModal && selectedBill && (
         <EditBillModal
           bill={selectedBill}
           onClose={() => setShowEditModal(false)}
-          onSave={async (updatedBill) => {
+          onSave={async (updatedBill: Bill) => {
             try {
               await adminService.updateBillStatus(updatedBill.id, { status: updatedBill.status });
               addToast('Bill updated successfully', 'success');
               setShowEditModal(false);
-              await fetchBills();
+              await refresh();
             } catch (error) {
               addToast('Failed to update bill', 'error');
             }
@@ -427,14 +382,13 @@ const BillingManagement: React.FC = () => {
         />
       )}
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
           <div className="flex items-center gap-3">
             <FileText className="w-8 h-8 text-blue-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Bills</p>
-              <p className="text-2xl font-bold text-gray-900">{totalItems}</p>
+              <p className="text-sm text-gray-600">Page Bills</p>
+              <p className="text-2xl font-bold text-gray-900">{visibleBills.length}</p>
             </div>
           </div>
         </div>
@@ -442,7 +396,7 @@ const BillingManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <DollarSign className="w-8 h-8 text-green-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Collected</p>
+              <p className="text-sm text-gray-600">Page Collected</p>
               <p className="text-2xl font-bold text-gray-900">KES {totalAmount.toLocaleString()}</p>
             </div>
           </div>
@@ -451,7 +405,7 @@ const BillingManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <Calendar className="w-8 h-8 text-yellow-600" />
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-sm text-gray-600">Page Pending</p>
               <p className="text-2xl font-bold text-gray-900">KES {pendingAmount.toLocaleString()}</p>
             </div>
           </div>
@@ -460,14 +414,13 @@ const BillingManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <AlertCircle className="w-8 h-8 text-red-600" />
             <div>
-              <p className="text-sm text-gray-600">Overdue</p>
+              <p className="text-sm text-gray-600">Page Overdue</p>
               <p className="text-2xl font-bold text-gray-900">KES {overdueAmount.toLocaleString()}</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Bills Table */}
       <div className="bg-white/20 backdrop-blur-sm rounded-lg border border-white/30 overflow-hidden">
         <div className="px-6 py-4 border-b border-white/30 flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-900">
@@ -552,19 +505,18 @@ const BillingManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Pagination Controls */}
       <PaginationControls
         currentPage={currentPage}
         totalPages={totalPages}
         hasPrev={hasPrev}
         hasNext={hasNext}
-        onPageChange={(n) => setCurrentPage(n)}
+        onPageChange={(n: number) => setCurrentPage(n)}
         itemsPerPage={itemsPerPage}
-        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        onItemsPerPageChange={(n: number) => setItemsPerPage(n)}
         totalItems={totalItems}
       />
 
-      {visibleBills.length === 0 && (
+      {visibleBills.length === 0 && !loading && (
         <div className="text-center py-12">
           <FileText className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No bills found</h3>
@@ -574,7 +526,6 @@ const BillingManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Generate Bills Modal */}
       {showGenerateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">

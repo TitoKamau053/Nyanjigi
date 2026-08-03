@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
+// DEPRECATED: useServerSearch provides server-side paginated searching.
+// keep this hook for backwards compatibility while migrating components.
+
 type UseClientSearchResult<T> = {
   paginatedData: T[];
   totalItems: number;

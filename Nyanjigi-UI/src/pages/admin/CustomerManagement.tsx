@@ -1,47 +1,80 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Users, Plus, ToggleLeft, ToggleRight, RefreshCw, Wallet } from 'lucide-react';
-import useClientSearch from '../../hooks/useClientSearch';
+import useServerSearch from '../../hooks/useServerSearch';
 import SearchBar from '../../components/common/SearchBar';
 import PaginationControls from '../../components/common/PaginationControls';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
+// ---------------------------------------------------------------------------
+// Types & Adapters
+// ---------------------------------------------------------------------------
+
 interface Customer {
   id: number;
-  account_number: string;
-  full_name: string;
-  email: string | null;
-  phone: string;
-  location: string;
-  zone: 'Nyakahura' | 'G3' | 'Githunguri';
-  customer_type: 'normal' | 'institution';
-  status: 'active' | 'inactive';
-  connection_date: string;
+  account_number?: string;
+  accountNumber?: string;
+  full_name?: string;
+  fullName?: string;
+  name?: string;
+  email?: string | null;
+  phone?: string;
+  phone_number?: string;
+  phoneNumber?: string;
+  contact?: string;
+  location?: string;
+  zone?: 'Nyakahura' | 'G3' | 'Githunguri' | string;
+  customer_type?: 'normal' | 'institution';
+  customerType?: 'normal' | 'institution';
+  status?: 'active' | 'inactive' | string;
+  is_active?: boolean;
+  isActive?: boolean;
+  connection_date?: string;
+  connectionDate?: string;
   last_payment_date?: string;
-  outstanding_balance: number;
+  
+  // Ledger Balance Fields
+  total_debt?: number;
+  totalDebt?: number;
+  outstanding_balance?: number;
+  outstandingBalance?: number;
+  current_balance?: number;
+  currentBalance?: number;
+  account_balance?: number;
+  accountBalance?: number;
 }
 
-interface ApiCustomer {
-  id: number;
-  account_number: string;
-  full_name: string;
-  phone: string;
-  email: string | null;
-  location: string;
-  zone: 'Nyakahura' | 'G3' | 'Githunguri';
-  customer_type: 'normal' | 'institution';
-  meter_number: string | null;
-  connection_date: string;
-  is_active: number;
-  created_at: string;
-}
+// Safely maps backend keys (snake_case OR camelCase) to ensure the UI always has data
+const getCustomerData = (c: Customer) => {
+  // We prioritize total_debt here to ensure the full ledger debt is what shows on the UI
+  const balance = c.total_debt ?? c.totalDebt ?? c.outstanding_balance ?? c.outstandingBalance ?? c.current_balance ?? c.currentBalance ?? c.account_balance ?? c.accountBalance ?? 0;
+  const rawStatus = c.status || (c.is_active || c.isActive ? 'active' : 'inactive');
+  
+  return {
+    id: c.id,
+    fullName: c.full_name || c.fullName || c.name || 'Unknown',
+    accountNumber: c.account_number || c.accountNumber || 'N/A',
+    phone: c.phone || c.phone_number || c.phoneNumber || c.contact || 'N/A',
+    email: c.email || 'N/A',
+    location: c.location || 'N/A',
+    zone: c.zone || 'N/A',
+    customerType: c.customer_type || c.customerType || 'normal',
+    connectionDate: c.connection_date || c.connectionDate || new Date().toISOString(),
+    status: rawStatus.toLowerCase(),
+    balance: Number(balance)
+  };
+};
+// ---------------------------------------------------------------------------
+// Modals
+// ---------------------------------------------------------------------------
 
-const AdjustBalanceModal: React.FC<{ 
+const AdjustBalanceModal = ({ 
+  customer, onClose, onSuccess 
+}: { 
   customer: Customer | null; 
-  onClose: () => void;
-  onSuccess: () => void;
-}> = ({ customer, onClose, onSuccess }) => {
+  onClose: () => void; 
+  onSuccess: () => void; 
+}) => {
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<'debit' | 'credit'>('debit'); 
   const [notes, setNotes] = useState('');
@@ -49,12 +82,12 @@ const AdjustBalanceModal: React.FC<{
   const { addToast } = useToast();
 
   if (!customer) return null;
+  const cData = getCustomerData(customer);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Debit (Owe) = Positive, Credit (Overpaid) = Negative
       const finalAmount = type === 'debit' ? parseFloat(amount) : -parseFloat(amount);
       await adminService.adjustCustomerBalance(customer.id, { amount: finalAmount, notes });
       addToast('Balance adjusted successfully', 'success');
@@ -72,7 +105,7 @@ const AdjustBalanceModal: React.FC<{
       <div className="bg-white rounded-lg p-6 w-full max-w-sm">
         <h2 className="text-xl font-semibold mb-4">Adjust Balance</h2>
         <p className="text-sm text-gray-600 mb-4">
-          For: <span className="font-bold">{customer.full_name}</span>
+          For: <span className="font-bold">{cData.fullName}</span>
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -132,10 +165,14 @@ const AdjustBalanceModal: React.FC<{
   );
 };
 
-const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => void }> = ({ onClose, onCustomerAdded }) => {
+const AddCustomerModal = ({ 
+  onClose, onCustomerAdded 
+}: { 
+  onClose: () => void; 
+  onCustomerAdded: () => void 
+}) => {
   const [fullName, setFullName] = useState('');
   const [nationalId, setNationalId] = useState('');
-  // Default to Nyakahura prefix (NyWs-0)
   const [accountNumber, setAccountNumber] = useState('NyWs-0');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -147,26 +184,16 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
   const [error, setError] = useState('');
   const { addToast } = useToast();
 
-  // New state for opening balance
   const [initialBalance, setInitialBalance] = useState('');
   const [balanceType, setBalanceType] = useState<'none' | 'debt' | 'credit'>('none');
 
-  // Handle Zone Change to pre-apply specific zero-padding prefix
   const handleZoneChange = (newZone: 'Nyakahura' | 'G3' | 'Githunguri') => {
     setZone(newZone);
-    // Set specific prefix based on zone as requested
     switch (newZone) {
-      case 'Nyakahura':
-        setAccountNumber('NyWs-0');
-        break;
-      case 'G3':
-        setAccountNumber('NyWs-00');
-        break;
-      case 'Githunguri':
-        setAccountNumber('NyWs-000');
-        break;
-      default:
-        setAccountNumber('NyWs-');
+      case 'Nyakahura': setAccountNumber('NyWs-0'); break;
+      case 'G3': setAccountNumber('NyWs-00'); break;
+      case 'Githunguri': setAccountNumber('NyWs-000'); break;
+      default: setAccountNumber('NyWs-');
     }
   };
 
@@ -175,8 +202,6 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
       setError('Please select a valid zone');
       return false;
     }
-    // Ensure account number has the correct prefix format and ends with digits
-    // Allows NyWs-01, NyWs-001, NyWs-0001 etc.
     if (!/^NyWs-0+\d+$/.test(accountNumber)) {
         setError('Account number must match the zone format (e.g., NyWs-0... for Nyakahura)');
         return false;
@@ -195,7 +220,6 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
 
     setLoading(true);
     try {
-      // Calculate signed initial balance
       let signedBalance = 0;
       if (balanceType === 'debt') signedBalance = parseFloat(initialBalance);
       if (balanceType === 'credit') signedBalance = -parseFloat(initialBalance);
@@ -216,8 +240,8 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
       addToast(`Customer added. Password set to ID: ${nationalId}`, 'success');
       onCustomerAdded();
       onClose();
-    } catch (error: any) {
-      const msg = error.response?.data?.message || 'Failed to add customer';
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Failed to add customer';
       setError(msg);
       addToast(msg, 'error');
     } finally {
@@ -230,8 +254,6 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
       <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-semibold mb-4">Add New Customer</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* Zone and Account Number Group */}
           <div className="p-3 bg-gray-50 rounded-md border border-gray-200 space-y-3">
              <div>
                 <label className="block text-sm font-medium text-gray-700">Zone</label>
@@ -302,7 +324,7 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
                   }
                 }}
                 placeholder="07xxxxxxxx" 
-                required pattern="^\d{10}$" // expects exactly 10 digits 
+                required pattern="^\d{10}$"
                 className="mt-1 block w-full border border-gray-300 rounded-md p-2" 
                 /> 
               </div>
@@ -354,7 +376,6 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
             </div>
           </div>
 
-          {/* OPENING BALANCE SECTION */}
           <div className="p-3 bg-blue-50 rounded-md border border-blue-100 space-y-3 mt-4">
             <h3 className="text-sm font-semibold text-blue-800">Opening Balance (Optional)</h3>
             <div className="flex gap-2">
@@ -430,11 +451,14 @@ const AddCustomerModal: React.FC<{ onClose: () => void; onCustomerAdded: () => v
   );
 };
 
-const ViewCustomerModal: React.FC<{ 
+const ViewCustomerModal = ({ 
+  customer, onClose 
+}: { 
   customer: Customer | null; 
   onClose: () => void 
-}> = ({ customer, onClose }) => {
+}) => {
   if (!customer) return null;
+  const cData = getCustomerData(customer);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -444,68 +468,67 @@ const ViewCustomerModal: React.FC<{
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Account Number</label>
-              <p className="text-sm text-gray-900">{customer.account_number}</p>
+              <p className="text-sm text-gray-900">{cData.accountNumber}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Status</label>
-              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                customer.status === 'active' 
+              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full capitalize ${
+                cData.status === 'active' 
                   ? 'bg-green-100 text-green-800' 
                   : 'bg-red-100 text-red-800'
               }`}>
-                {customer.status}
+                {cData.status}
               </span>
             </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Full Name</label>
-            <p className="text-sm text-gray-900">{customer.full_name}</p>
+            <p className="text-sm text-gray-900">{cData.fullName}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Email</label>
-              <p className="text-sm text-gray-900">{customer.email}</p>
+              <p className="text-sm text-gray-900">{cData.email}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Phone</label>
-              <p className="text-sm text-gray-900">{customer.phone}</p>
+              <p className="text-sm text-gray-900">{cData.phone}</p>
             </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Location</label>
-            <p className="text-sm text-gray-900">{customer.location}</p>
+            <p className="text-sm text-gray-900">{cData.location}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Zone</label>
-              <p className="text-sm text-gray-900">{customer.zone}</p>
+              <p className="text-sm text-gray-900">{cData.zone}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Customer Type</label>
-              <p className="text-sm text-gray-900 capitalize">{customer.customer_type}</p>
+              <p className="text-sm text-gray-900 capitalize">{cData.customerType}</p>
             </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Connection Date</label>
             <p className="text-sm text-gray-900">
-              {new Date(customer.connection_date).toLocaleDateString()}
+              {new Date(cData.connectionDate).toLocaleDateString()}
             </p>
           </div>
           
-          {/* UPDATED: Balance Display in View Modal */}
           <div>
             <label className="block text-sm font-medium text-gray-700">Outstanding Balance</label>
             <p className={`text-sm font-semibold ${
-               customer.outstanding_balance > 0 
+               cData.balance > 0 
                  ? 'text-red-600' 
-                 : customer.outstanding_balance < 0 
+                 : cData.balance < 0 
                    ? 'text-green-600' 
                    : 'text-gray-900'
             }`}>
-              {customer.outstanding_balance > 0 
-                 ? `Debt: KES ${customer.outstanding_balance.toLocaleString()}` 
-                 : customer.outstanding_balance < 0 
-                    ? `Overpaid: KES ${Math.abs(customer.outstanding_balance).toLocaleString()}` 
+              {cData.balance > 0 
+                 ? `Debt: KES ${cData.balance.toLocaleString()}` 
+                 : cData.balance < 0 
+                    ? `Overpaid: KES ${Math.abs(cData.balance).toLocaleString()}` 
                     : 'KES 0'}
             </p>
           </div>
@@ -523,10 +546,11 @@ const ViewCustomerModal: React.FC<{
   );
 };
 
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
+
 const CustomerManagement: React.FC = () => {
-  // Master list of all calculated customers
-  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
-  // Currently displayed customers (after filter & pagination) are derived from hook
   const [loading, setLoading] = useState(true);
   
   const [showAddModal, setShowAddModal] = useState(false);
@@ -536,94 +560,12 @@ const CustomerManagement: React.FC = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [adjustCustomer, setAdjustCustomer] = useState<Customer | null>(null);
   
-  
   const [selectedZone, setSelectedZone] = useState<'Nyakahura' | 'G3' | 'Githunguri' | ''>('');
   
   const { addToast } = useToast();
 
-  // 1. FETCH EVERYTHING EXACTLY ONCE
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-const fetchInitialData = async () => {
-    try {
-      setLoading(true);
-      
-      // Helper function to fetch all data page-by-page while respecting the backend's limit limit
-      const fetchAllPages = async (apiFunc: (params: any) => Promise<any>) => {
-        let allItems: any[] = [];
-        let currentPage = 1;
-        let totalPages = 1;
-
-        do {
-          // Use a safe limit like 100 that the backend validation will accept
-          const response = await apiFunc({ page: currentPage, limit: 100 });
-          const data = response.data.data || response.data;
-          
-          // Find the array in the response (could be 'customers', 'bills', 'payments', etc.)
-          const arrayKey = Object.keys(data).find(key => Array.isArray(data[key]));
-          if (arrayKey) {
-            allItems = [...allItems, ...data[arrayKey]];
-          }
-          
-          totalPages = data.pagination?.total_pages || 1;
-          currentPage++;
-        } while (currentPage <= totalPages);
-
-        return allItems;
-      };
-
-      // Fetch ALL chunks concurrently
-      const [customersList, bills, contributions, fines, payments] = await Promise.all([
-        fetchAllPages(adminService.getCustomers),
-        fetchAllPages(adminService.getBills),
-        fetchAllPages(adminService.getContributions),
-        fetchAllPages(adminService.getFines),
-        fetchAllPages(adminService.getPayments)
-      ]);
-
-      // Calculate Net Balance = (Total Charges) - (Total Payments)
-      const customersWithBalances = customersList.map((customer: ApiCustomer) => {
-        const customerBills = bills.filter((bill: any) => bill.customer_id === customer.id);
-        const customerContributions = contributions.filter((c: any) => c.customer_id === customer.id);
-        const customerFines = fines.filter((fine: any) => fine.customer_id === customer.id);
-        const customerPayments = payments.filter((p: any) => p.customer_id === customer.id && p.status === 'completed');
-
-        const totalBills = customerBills.reduce((sum: number, b: any) => sum + (Number(b.total_amount) || 0), 0);
-        const totalContribs = customerContributions.reduce((sum: number, c: any) => sum + (Number(c.amount) || 0), 0);
-        const totalFines = customerFines.reduce((sum: number, f: any) => sum + (Number(f.amount) || 0), 0);
-        const totalPaid = customerPayments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
-
-        const netBalance = (totalBills + totalContribs + totalFines) - totalPaid;
-
-        return {
-          ...customer,
-          status: (customer.is_active === 1 ? 'active' : 'inactive') as 'active' | 'inactive',
-          outstanding_balance: netBalance,
-          last_payment_date: undefined,
-        };
-      });
-
-      // Store the complete master list
-      setAllCustomers(customersWithBalances);
-    } catch (error) {
-      console.error('Error fetching initial data:', error);
-      addToast('Failed to fetch customers', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 2. CLIENT-SIDE FILTERING & PAGINATION
-  // Zone-specific filtered data (applied before generic client search)
-  const zoneFiltered = React.useMemo(() => {
-    if (!selectedZone) return allCustomers;
-    return allCustomers.filter(c => c.zone === selectedZone);
-  }, [allCustomers, selectedZone]);
-
   const {
-    paginatedData,
+    data: customers,
     totalItems,
     totalPages,
     hasPrev,
@@ -634,7 +576,13 @@ const fetchInitialData = async () => {
     setSearchTerm,
     setCurrentPage,
     setItemsPerPage,
-  } = useClientSearch<Customer>(zoneFiltered, ['full_name', 'account_number', 'email'], 10);
+    loading: serverLoading,
+    refresh,
+  } = useServerSearch<Customer>((params) => adminService.getCustomers({ page: params.page, limit: params.limit, search: params.search, zone: selectedZone || undefined }), { initialPage: 1, initialLimit: 10 });
+
+  useEffect(() => {
+    setLoading(serverLoading);
+  }, [serverLoading]);
 
   const handleZoneChange = (zone: string) => {
     setSelectedZone(zone as 'Nyakahura' | 'G3' | 'Githunguri' | '');
@@ -644,8 +592,7 @@ const fetchInitialData = async () => {
   const toggleCustomerStatus = async (customerId: number) => {
     try {
       await adminService.toggleCustomerStatus(customerId);
-      // Re-fetch everything to ensure sync with DB after a mutation
-      fetchInitialData();
+      refresh();
       addToast('Customer status updated successfully', 'success');
     } catch (error) {
       addToast('Failed to update customer status', 'error');
@@ -662,7 +609,7 @@ const fetchInitialData = async () => {
     setShowAdjustModal(true);
   };
 
-  if (loading && allCustomers.length === 0) {
+  if (loading && (!customers || customers.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -673,7 +620,6 @@ const fetchInitialData = async () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Customer Management</h1>
@@ -681,7 +627,7 @@ const fetchInitialData = async () => {
         </div>
         <div className="flex gap-3">
           <button
-            onClick={() => fetchInitialData()}
+            onClick={() => refresh()}
             className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
             title="Refresh and recalculate outstanding balances from Server"
           >
@@ -698,12 +644,11 @@ const fetchInitialData = async () => {
         </div>
       </div>
 
-      {/* Search, Filter and Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="md:col-span-2">
           <SearchBar
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e: { target: { value: string; }; }) => setSearchTerm(e.target.value)}
             placeholder="Search by name, account, or email..."
           />
         </div>
@@ -730,7 +675,6 @@ const fetchInitialData = async () => {
         </div>
       </div>
 
-      {/* Customers Table */}
       <div className="bg-white/20 backdrop-blur-sm rounded-lg border border-white/30 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -763,106 +707,107 @@ const fetchInitialData = async () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {paginatedData.map((customer) => (
-                <tr key={customer.id} className="hover:bg-blue-50/30 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{customer.full_name}</div>
-                      <div className="text-sm text-gray-500">{customer.location}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-mono text-gray-900">{customer.account_number}</div>
-                    <div className="text-sm text-gray-500">
-                      Connected: {new Date(customer.connection_date).toLocaleDateString()}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-sm text-gray-900">{customer.zone}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        customer.customer_type === 'institution'
-                          ? 'bg-purple-100 text-purple-800'
-                          : 'bg-blue-100 text-blue-800'
+              {(customers || []).map((customer) => {
+                const cData = getCustomerData(customer);
+                return (
+                  <tr key={cData.id} className="hover:bg-blue-50/30 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{cData.fullName}</div>
+                        <div className="text-sm text-gray-500">{cData.location}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-mono text-gray-900">{cData.accountNumber}</div>
+                      <div className="text-sm text-gray-500">
+                        Connected: {new Date(cData.connectionDate).toLocaleDateString()}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="text-sm text-gray-900">{cData.zone}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          cData.customerType === 'institution'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {cData.customerType === 'institution' ? '🏢 Institution' : '👤 Normal'}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{cData.email !== 'N/A' ? cData.email : ''}</div>
+                      <div className="text-sm text-gray-500">{cData.phone}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full capitalize ${
+                        cData.status === 'active' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
                       }`}>
-                        {customer.customer_type === 'institution' ? '🏢 Institution' : '👤 Normal'}
+                        {cData.status}
                       </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{customer.email}</div>
-                    <div className="text-sm text-gray-500">{customer.phone}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      customer.status === 'active' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {customer.status}
-                    </span>
-                  </td>
+                    </td>
 
-                  {/* Balance Display Logic */}
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className={`text-sm font-medium ${
-                      customer.outstanding_balance > 0 
-                        ? 'text-red-600' 
-                        : customer.outstanding_balance < 0 
-                          ? 'text-green-600' 
-                          : 'text-gray-500'
-                    }`}>
-                      {customer.outstanding_balance > 0 
-                        ? `KES ${customer.outstanding_balance.toLocaleString()}` 
-                        : customer.outstanding_balance < 0 
-                          ? `Overpaid: KES ${Math.abs(customer.outstanding_balance).toLocaleString()}`
-                          : 'KES 0'}
-                    </div>
-                  </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className={`text-sm font-medium ${
+                        cData.balance > 0 
+                          ? 'text-red-600' 
+                          : cData.balance < 0 
+                            ? 'text-green-600' 
+                            : 'text-gray-500'
+                      }`}>
+                        {cData.balance > 0 
+                          ? `KES ${cData.balance.toLocaleString()}` 
+                          : cData.balance < 0 
+                            ? `Overpaid: KES ${Math.abs(cData.balance).toLocaleString()}`
+                            : 'KES 0'}
+                      </div>
+                    </td>
 
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleViewCustomer(customer)}
-                        className="text-green-600 hover:text-green-900 transition-colors"
-                        title="View Details"
-                      >
-                        <Users className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleAdjustBalance(customer)}
-                        className="text-purple-600 hover:text-purple-900 transition-colors"
-                        title="Adjust Balance"
-                      >
-                        <Wallet className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => toggleCustomerStatus(customer.id)}
-                        className="text-blue-600 hover:text-blue-900 transition-colors"
-                        title="Toggle Status"
-                      >
-                        {customer.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleViewCustomer(customer)}
+                          className="text-green-600 hover:text-green-900 transition-colors"
+                          title="View Details"
+                        >
+                          <Users className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleAdjustBalance(customer)}
+                          className="text-purple-600 hover:text-purple-900 transition-colors"
+                          title="Adjust Balance"
+                        >
+                          <Wallet className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => toggleCustomerStatus(cData.id)}
+                          className="text-blue-600 hover:text-blue-900 transition-colors"
+                          title="Toggle Status"
+                        >
+                          {cData.status === 'active' ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Pagination Controls */}
       <PaginationControls
         currentPage={currentPage}
         totalPages={totalPages}
         hasPrev={hasPrev}
         hasNext={hasNext}
-        onPageChange={(n) => setCurrentPage(n)}
+        onPageChange={(n: number) => setCurrentPage(n)}
         itemsPerPage={itemsPerPage}
-        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        onItemsPerPageChange={(n: number) => setItemsPerPage(n)}
         totalItems={totalItems}
       />
 
@@ -879,7 +824,7 @@ const fetchInitialData = async () => {
       {showAddModal && (
         <AddCustomerModal
           onClose={() => setShowAddModal(false)}
-          onCustomerAdded={() => fetchInitialData()}
+          onCustomerAdded={() => refresh()}
         />
       )}
 
@@ -900,7 +845,7 @@ const fetchInitialData = async () => {
             setShowAdjustModal(false);
             setAdjustCustomer(null);
           }}
-          onSuccess={() => fetchInitialData()}
+          onSuccess={() => refresh()}
         />
       )}
     </div>

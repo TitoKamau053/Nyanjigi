@@ -425,25 +425,8 @@ async processCustomerAdvances(customerId) {
       }
 
       // C. Pay Contributions
-      for (const contrib of contributions) {
-        if (totalAdvance <= 0) break;
-
-        const outstanding = parseFloat(contrib.amount_required) - parseFloat(contrib.amount_paid);
-        if (outstanding > 0) {
-          const allocated = await useAdvance(outstanding, null, 'contribution', `Contribution #${contrib.id} payment`);
-          
-          if (allocated > 0) {
-            const newPaid = parseFloat(contrib.amount_paid) + allocated;
-            const newStatus = newPaid >= parseFloat(contrib.amount_required) ? 'completed' : 'partial';
-            
-            await executeQuery(
-              "UPDATE contributions SET amount_paid = ?, status = ?, completed_at = ? WHERE id = ?",
-              [newPaid, newStatus, (newStatus === 'completed' ? new Date() : null), contrib.id]
-            );
-            allocatedCount++;
-          }
-        }
-      }
+      // Contributions are excluded from automatic advance allocation.
+      // Any contribution payments must be targeted explicitly by an admin payload.
 
       return {
         processed: true,

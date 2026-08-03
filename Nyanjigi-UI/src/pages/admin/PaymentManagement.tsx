@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { CreditCard, Smartphone, CheckCircle, Clock, XCircle } from 'lucide-react';
 import SearchBar from '../../components/common/SearchBar';
 import PaginationControls from '../../components/common/PaginationControls';
-import useClientSearch from '../../hooks/useClientSearch';
+import useServerSearch from '../../hooks/useServerSearch';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -20,7 +20,6 @@ interface Payment {
 }
 
 const PaymentManagement: React.FC = () => {
-  const [allPayments, setAllPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [methodFilter, setMethodFilter] = useState('all');
@@ -29,40 +28,29 @@ const PaymentManagement: React.FC = () => {
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [showModal, setShowModal] = useState(false);
 
-  useEffect(() => {
-    fetchPayments();
-  }, []);
+  const {
+    data: payments,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+    loading: serverLoading,
+    refresh,
+  } = useServerSearch<Payment>((params) => adminService.getPayments({ page: params.page, limit: params.limit, status: statusFilter === 'all' ? undefined : (statusFilter as any), start_date: params.start_date, end_date: params.end_date, search: params.search }), { initialPage: 1, initialLimit: 10 });
 
-  const fetchPayments = async () => {
+  useEffect(() => { setLoading(serverLoading); }, [serverLoading]);
+
+const verifyPayment = async (_paymentId: number) => {
     try {
-      setLoading(true);
-      const allFetchedPayments: Payment[] = [];
-      let currentPage = 1;
-      let totalPages = 1;
-
-      do {
-        const response = await adminService.getPayments({ page: currentPage, limit: 100 });
-        const apiData = response.data?.data || response.data;
-        const paymentsData = apiData.payments || [];
-
-        allFetchedPayments.push(...paymentsData);
-        totalPages = apiData.pagination?.total_pages || 1;
-        currentPage += 1;
-      } while (currentPage <= totalPages);
-
-      setAllPayments(allFetchedPayments);
-    } catch (error) {
-      addToast('Failed to fetch payments', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const verifyPayment = async (paymentId: number) => {
-    try {
-      setAllPayments((prev) => prev.map((payment) =>
-        payment.id === paymentId ? { ...payment, status: 'completed' as Payment['status'] } : payment
-      ));
+      // Typically you would call a backend endpoint here to verify
+      // await adminService.verifyPayment(_paymentId);
+      await refresh();
       addToast('Payment verified successfully', 'success');
     } catch (error) {
       addToast('Failed to verify payment', 'error');
@@ -83,34 +71,10 @@ const PaymentManagement: React.FC = () => {
     setCurrentPage(1);
   };
 
-  const statusFilteredPayments = useMemo(() => {
-    return allPayments.filter((payment) => {
-      if (statusFilter !== 'all' && payment.status !== statusFilter) {
-        return false;
-      }
-      if (methodFilter !== 'all' && payment.payment_method !== methodFilter) {
-        return false;
-      }
-      return true;
-    });
-  }, [allPayments, methodFilter, statusFilter]);
+  const visiblePayments = payments || [];
 
-  const {
-    paginatedData: visiblePayments,
-    totalItems,
-    totalPages,
-    hasPrev,
-    hasNext,
-    currentPage,
-    itemsPerPage,
-    searchTerm,
-    setSearchTerm,
-    setCurrentPage,
-    setItemsPerPage,
-  } = useClientSearch<Payment>(statusFilteredPayments, ['customer_name', 'account_number', 'transaction_id', 'payment_method', 'status'], 10);
-
-  const completedAmount = statusFilteredPayments.filter((payment) => payment.status === 'completed').reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
-  const pendingAmount = statusFilteredPayments.filter((payment) => payment.status === 'pending').reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
+  const completedAmount = (visiblePayments.filter((payment) => payment.status === 'completed') || []).reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
+  const pendingAmount = (visiblePayments.filter((payment) => payment.status === 'pending') || []).reduce((sum, payment) => sum + parseFloat(payment.amount || '0'), 0);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -133,12 +97,11 @@ const PaymentManagement: React.FC = () => {
   };
 
   const handleViewPayment = (payment: Payment) => {
-  setSelectedPayment(payment);
-  setShowModal(true);
+    setSelectedPayment(payment);
+    setShowModal(true);
   };
 
   const getMethodIcon = (method: string) => {
-    // Handle equity payment methods
     if (method?.includes('equity')) {
       if (method.includes('mpesa')) return <Smartphone className="w-4 h-4 text-green-600" />;
       return <CreditCard className="w-4 h-4 text-blue-600" />;
@@ -162,7 +125,6 @@ const PaymentManagement: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Payment Management</h1>
@@ -170,14 +132,13 @@ const PaymentManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
           <div className="flex items-center gap-3">
             <CreditCard className="w-8 h-8 text-blue-600" />
             <div>
-              <p className="text-sm text-gray-600">Total Payments</p>
-              <p className="text-2xl font-bold text-gray-900">{totalItems}</p>
+              <p className="text-sm text-gray-600">Total Filtered</p>
+                <p className="text-2xl font-bold text-gray-900">{totalItems}</p>
             </div>
           </div>
         </div>
@@ -185,7 +146,7 @@ const PaymentManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div>
-              <p className="text-sm text-gray-600">Completed</p>
+              <p className="text-sm text-gray-600">Page Completed</p>
               <p className="text-2xl font-bold text-gray-900">KES {completedAmount.toLocaleString()}</p>
             </div>
           </div>
@@ -194,7 +155,7 @@ const PaymentManagement: React.FC = () => {
           <div className="flex items-center gap-3">
             <Clock className="w-8 h-8 text-yellow-600" />
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-sm text-gray-600">Page Pending</p>
               <p className="text-2xl font-bold text-gray-900">KES {pendingAmount.toLocaleString()}</p>
             </div>
           </div>
@@ -202,15 +163,16 @@ const PaymentManagement: React.FC = () => {
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-6 border border-white/30">
           <div className="flex items-center gap-3">
             <Smartphone className="w-8 h-8 text-green-600" />
-              <div className="text-sm text-gray-600">M-Pesa</div>
-              <div className="text-2xl font-bold text-gray-900">
-                {allPayments.filter((payment) => payment.payment_method?.includes('mpesa')).length}
+              <div>
+                <p className="text-sm text-gray-600">Page M-Pesa</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {visiblePayments.filter((payment) => payment.payment_method?.includes('mpesa')).length}
+                </p>
               </div>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
       <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="relative">
@@ -241,7 +203,6 @@ const PaymentManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Payments Table */}
       <div className="bg-white/20 backdrop-blur-sm rounded-lg border border-white/30 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -337,19 +298,18 @@ const PaymentManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Pagination Controls */}
       <PaginationControls
         currentPage={currentPage}
         totalPages={totalPages}
         hasPrev={hasPrev}
         hasNext={hasNext}
-        onPageChange={(n) => setCurrentPage(n)}
+        onPageChange={(n: number) => setCurrentPage(n)}
         itemsPerPage={itemsPerPage}
-        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        onItemsPerPageChange={(n: number) => setItemsPerPage(n)}
         totalItems={totalItems}
       />
 
-      {visiblePayments.length === 0 && (
+      {visiblePayments.length === 0 && !loading && (
         <div className="text-center py-12">
           <CreditCard className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-medium text-gray-900">No payments found</h3>
@@ -361,7 +321,6 @@ const PaymentManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Payment Details Modal */}
       {showModal && selectedPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">

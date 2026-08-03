@@ -484,5 +484,15 @@ router.get('/:customerId/account-summary',
   asyncHandler(CustomerController.getAccountSummary)
 );
 
+/**
+ * @route   GET /api/v1/customers/analytics/zones
+ * @desc    Get financial summaries grouped by zones
+ * @access  Private (Admin only)
+ */
+router.get('/analytics/zones',
+  verifyAdmin,
+  asyncHandler(CustomerController.getZoneFinancialSummary)
+);
+
 module.exports = router;
 

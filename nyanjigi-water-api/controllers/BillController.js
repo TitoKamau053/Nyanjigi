@@ -1,8 +1,6 @@
 const { Bill, Customer, SystemSettings } = require('../models');
 const ApiResponse = require('../utils/response');
 const moment = require('moment');
-// NotificationService is still required if you need it elsewhere, or you can remove the require if it's no longer used in this file.
-const NotificationService = require('../services/NotificationService');
 
 /**
  * Bill Controller - Handles billing operations and management
@@ -131,6 +129,11 @@ class BillController {
 
       if (!bill) {
         return ApiResponse.notFound(res, 'Bill not found');
+      }
+
+      // RBAC Security Check: Prevent customers from viewing other people's bills
+      if (req.customer && bill.customer_id !== req.customer.id) {
+        return ApiResponse.forbidden(res, 'Access denied. You can only view your own bills.');
       }
 
       return ApiResponse.success(res, bill, 'Bill details retrieved successfully');

@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText } from 'lucide-react';
 import SearchBar from '../../components/common/SearchBar';
 import PaginationControls from '../../components/common/PaginationControls';
-import useClientSearch from '../../hooks/useClientSearch';
-import { useToast } from '../../context/ToastContext';
+import useServerSearch from '../../hooks/useServerSearch';
 import { adminService } from '../../services/adminService';
 
 interface Fine {
@@ -25,61 +24,11 @@ interface Fine {
 }
 
 const AdminFines: React.FC = () => {
-  const [allFines, setAllFines] = useState<Fine[]>([]);
   const [loading, setLoading] = useState(true);
-  const { addToast } = useToast();
-
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  useEffect(() => {
-    fetchFines();
-  }, []);
-
-  const fetchFines = async () => {
-    try {
-      setLoading(true);
-      const allFetchedFines: Fine[] = [];
-      let currentPage = 1;
-      let totalPages = 1;
-
-      do {
-        const response = await adminService.getFines?.({ page: currentPage, limit: 100 });
-        const apiData = response?.data?.data || response?.data;
-        const finesData = apiData.fines || apiData || [];
-
-        allFetchedFines.push(...finesData);
-        totalPages = apiData.pagination?.total_pages || 1;
-        currentPage += 1;
-      } while (currentPage <= totalPages);
-
-      setAllFines(allFetchedFines);
-    } catch (error) {
-      console.error('Error fetching fines:', error);
-      addToast('Failed to fetch fines', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
-  };
-
-  const handleStatusChange = (status: string) => {
-    setStatusFilter(status);
-  };
-
-  const statusFilteredFines = useMemo(() => {
-    return allFines.filter((fine) => {
-      if (statusFilter !== 'all' && fine.status !== statusFilter) {
-        return false;
-      }
-      return true;
-    });
-  }, [allFines, statusFilter]);
-
   const {
-    paginatedData: fines,
+    data: serverFines,
     totalItems,
     totalPages,
     hasPrev,
@@ -90,7 +39,23 @@ const AdminFines: React.FC = () => {
     setSearchTerm,
     setCurrentPage,
     setItemsPerPage,
-  } = useClientSearch<Fine>(statusFilteredFines, ['full_name', 'account_number', 'fine_name', 'reason'], 10);
+    loading: serverLoading,
+  } = useServerSearch<Fine>((params) => adminService.getFines({ page: params.page, limit: params.limit, status: statusFilter as any, search: params.search }), { initialPage: 1, initialLimit: 10 });
+
+  useEffect(() => {
+    setLoading(serverLoading);
+  }, [serverLoading]);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+  };
+
+  const handleStatusChange = (status: string) => {
+    setStatusFilter(status);
+    setCurrentPage(1);
+  };
+
+  const fines = serverFines || [];
 
   const formatCurrency = (amount: string | number): string => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
@@ -107,7 +72,6 @@ const AdminFines: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Fines Management</h1>
@@ -115,7 +79,6 @@ const AdminFines: React.FC = () => {
         </div>
       </div>
 
-      {/* Search and Filter */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="md:col-span-2">
           <SearchBar value={searchTerm} onChange={handleSearchChange} placeholder="Search by customer name or account..." />
@@ -135,7 +98,6 @@ const AdminFines: React.FC = () => {
         </div>
       </div>
 
-      {/* Fines List */}
       <div className="bg-white/20 backdrop-blur-sm rounded-lg border border-white/30">
         <div className="px-6 py-4 border-b border-white/30">
           <h3 className="text-lg font-semibold text-gray-900">Fines</h3>
@@ -187,18 +149,17 @@ const AdminFines: React.FC = () => {
         )}
       </div>
 
-      {/* Pagination Controls */}
       <PaginationControls
         currentPage={currentPage}
         totalPages={totalPages}
         hasPrev={hasPrev}
         hasNext={hasNext}
-        onPageChange={(n) => setCurrentPage(n)}
+        onPageChange={(n: number) => setCurrentPage(n)}
         itemsPerPage={itemsPerPage}
-        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        onItemsPerPageChange={(n: number) => setItemsPerPage(n)}
         totalItems={totalItems}
       />
-      </div>
+    </div>
   );
 };
 

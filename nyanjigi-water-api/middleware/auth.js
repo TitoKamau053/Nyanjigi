@@ -84,7 +84,7 @@ const verifyCustomer = async (req, res, next) => {
   }
 };
 
-// Verify token (allows both admin and customer)
+// Verify token (allows both admin and customer securely)
 const verifyToken = async (req, res, next) => {
   try {
     const token = AuthUtils.extractToken(req);
@@ -96,21 +96,19 @@ const verifyToken = async (req, res, next) => {
     // Verify token
     const decoded = AuthUtils.verifyToken(token);
 
-    // Try to get admin first
-    const adminQuery = 'SELECT id, username, email, full_name, is_active FROM admins WHERE id = ? AND is_active = TRUE';
-    const admin = await executeQuery(adminQuery, [decoded.id]);
+    if (decoded.type === 'admin') {
+      const adminQuery = 'SELECT id, username, email, full_name, is_active FROM admins WHERE id = ? AND is_active = TRUE';
+      const admin = await executeQuery(adminQuery, [decoded.id]);
 
-    if (admin && admin.length > 0) {
-      // Update last login
-      await executeQuery('UPDATE admins SET last_login = NOW() WHERE id = ?', [decoded.id]);
-
-      // Add admin info to request
-      req.admin = admin[0];
-      req.userType = 'admin';
-      req.user = admin[0];
-      next();
-    } else {
-      // Try customer
+      if (admin && admin.length > 0) {
+        await executeQuery('UPDATE admins SET last_login = NOW() WHERE id = ?', [decoded.id]);
+        req.admin = admin[0];
+        req.userType = 'admin';
+        req.user = admin[0];
+        return next();
+      }
+    } 
+    else if (decoded.type === 'customer') {
       const customerQuery = `
         SELECT id, account_number, full_name, phone, email, is_active
         FROM customers
@@ -119,18 +117,17 @@ const verifyToken = async (req, res, next) => {
       const customer = await executeQuery(customerQuery, [decoded.id]);
 
       if (customer && customer.length > 0) {
-        // Update last login
         await executeQuery('UPDATE customers SET last_login = NOW() WHERE id = ?', [decoded.id]);
-
-        // Add customer info to request
         req.customer = customer[0];
         req.userType = 'customer';
         req.user = customer[0];
-        next();
-      } else {
-        return ApiResponse.unauthorized(res, 'Invalid user account');
+        return next();
       }
     }
+
+    // If neither matched or type was missing/invalid
+    return ApiResponse.unauthorized(res, 'Invalid user account or token type');
+
   } catch (error) {
     console.error('Token verification error:', error);
     return ApiResponse.unauthorized(res, 'Invalid or expired token');

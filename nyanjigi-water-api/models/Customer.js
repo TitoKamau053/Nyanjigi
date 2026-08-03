@@ -141,8 +141,7 @@ class Customer extends BaseModel {
       throw error;
     }
   }
-
-  // Get customers with pagination and search
+  // Get customers with pagination, search, and dynamic balance calculation
   async getCustomersWithPagination(page = 1, limit = 10, search = '', status = '') {
     try {
       // Ensure page and limit are valid numbers
@@ -178,11 +177,16 @@ class Customer extends BaseModel {
         whereClause = `WHERE ${conditions.join(' AND ')}`;
       }
 
-      // Get customers
+      // --- THE FIX: Added subqueries to dynamically calculate total_debt ---
       const customersQuery = `
         SELECT
           id, account_number, full_name, phone, email, location, zone,
-          meter_number, connection_date, is_active, created_at, customer_type
+          meter_number, connection_date, is_active, created_at, customer_type,
+          (
+            COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = customers.id AND status != 'paid'), 0) +
+            COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = customers.id AND status != 'paid'), 0) +
+            COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = customers.id AND status != 'completed'), 0)
+          ) AS total_debt
         FROM customers
         ${whereClause}
         ORDER BY created_at DESC
@@ -254,6 +258,30 @@ class Customer extends BaseModel {
     }
   }
 
+  // Get financial metrics and debt summaries grouped by zone
+  async getZoneFinancialSummary() {
+    try {
+      const query = `
+        SELECT 
+          c.zone,
+          COUNT(c.id) as total_customers,
+          COALESCE(SUM(
+            COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) +
+            COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) +
+            COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0)
+          ), 0) AS zone_total_debt
+        FROM customers c
+        WHERE c.is_active = TRUE
+        GROUP BY c.zone
+      `;
+
+      return await executeQuery(query);
+    } catch (error) {
+      console.error('Error getting zone financial summary:', error);
+      throw error;
+    }
+  }
+  
   // Get customer dashboard data
   async getCustomerDashboard(customerId) {
     try {

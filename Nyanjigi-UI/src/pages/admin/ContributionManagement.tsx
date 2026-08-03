@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Users, DollarSign, TrendingUp, Plus, AlertCircle, Check, Edit2
 } from 'lucide-react';
 import SearchBar from '../../components/common/SearchBar';
 import PaginationControls from '../../components/common/PaginationControls';
-import useClientSearch from '../../hooks/useClientSearch';
+import useServerSearch from '../../hooks/useServerSearch';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 
@@ -29,7 +29,6 @@ interface Contribution {
 }
 
 const ContributionManagement: React.FC = () => {
-  const [allContributions, setAllContributions] = useState<Contribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -39,45 +38,31 @@ const ContributionManagement: React.FC = () => {
   const [paymentNotes, setPaymentNotes] = useState('');
   const { addToast } = useToast();
 
+  const {
+    data: contributions,
+    totalItems,
+    totalPages,
+    hasPrev,
+    hasNext,
+    currentPage,
+    itemsPerPage,
+    searchTerm,
+    setSearchTerm,
+    setCurrentPage,
+    setItemsPerPage,
+    loading: serverLoading,
+    refresh, // Extracted the refresh function
+  } = useServerSearch<Contribution>((params) => adminService.getContributions({ page: params.page, limit: params.limit, month: selectedMonth, status: params.status, search: params.search }), { initialPage: 1, initialLimit: 10 });
+
   useEffect(() => {
-    fetchContributions();
-  }, [selectedMonth]);
-
-  const fetchContributions = async () => {
-    try {
-      setLoading(true);
-
-      const allFetchedContributions: Contribution[] = [];
-      let currentPage = 1;
-      let totalPages = 1;
-
-      do {
-        const response = await adminService.getContributions({
-          page: currentPage,
-          limit: 100,
-          month: selectedMonth,
-        });
-
-        const contributionsData = response.data?.data?.contributions || [];
-        allFetchedContributions.push(...contributionsData);
-        totalPages = response.data?.data?.pagination?.total_pages || 1;
-        currentPage += 1;
-      } while (currentPage <= totalPages);
-
-      setAllContributions(allFetchedContributions);
-    } catch (error) {
-      console.error('Error fetching contributions:', error);
-      addToast('Failed to fetch contributions', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
+    setLoading(serverLoading);
+  }, [serverLoading]);
 
   const generateContributions = async () => {
     try {
       setLoading(true);
       await adminService.generateContributions({ contribution_month: selectedMonth + '-01' });
-      await fetchContributions();
+      await refresh(); // Replaced fetchContributions
       setShowGenerateModal(false);
       addToast('Contributions generated successfully', 'success');
     } catch (error) {
@@ -108,31 +93,13 @@ const ContributionManagement: React.FC = () => {
       setPaymentNotes('');
       setSelectedContribution(null);
       setMarkingAs(null);
-      await fetchContributions();
+      await refresh(); // Replaced fetchContributions
     } catch (error) {
       addToast('Failed to update contribution status', 'error');
     } finally {
       setLoading(false);
     }
   };
-
-  const statusFilteredContributions = useMemo(() => {
-    return allContributions;
-  }, [allContributions]);
-
-  const {
-    paginatedData: contributions,
-    totalItems,
-    totalPages,
-    hasPrev,
-    hasNext,
-    currentPage,
-    itemsPerPage,
-    searchTerm,
-    setSearchTerm,
-    setCurrentPage,
-    setItemsPerPage,
-  } = useClientSearch<Contribution>(statusFilteredContributions, ['customer_name', 'account_number', 'phone'], 10);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -157,20 +124,22 @@ const ContributionManagement: React.FC = () => {
     );
   };
 
-  // Calculate statistics
+  // Fixed stats calculations to use visibleContributions
+  const visibleContributions = contributions || [];
+
   const stats = {
-    total: statusFilteredContributions.length,
-    fully_paid: statusFilteredContributions.filter((contribution) => contribution.payment_status === 'fully_paid').length,
-    partially_paid: statusFilteredContributions.filter((contribution) => contribution.payment_status === 'partial').length,
-    unpaid: statusFilteredContributions.filter((contribution) => contribution.payment_status === 'unpaid').length,
-    total_expected: statusFilteredContributions.length * TOTAL_CONTRIBUTION,
-    total_collected: statusFilteredContributions.reduce((sum, contribution) => sum + parseFloat(contribution.amount_paid || '0'), 0),
-    total_outstanding: statusFilteredContributions.reduce((sum, contribution) => sum + parseFloat(contribution.outstanding_amount || '0'), 0),
+    total: visibleContributions.length,
+    fully_paid: visibleContributions.filter((c) => c.payment_status === 'fully_paid').length,
+    partially_paid: visibleContributions.filter((c) => c.payment_status === 'partial').length,
+    unpaid: visibleContributions.filter((c) => c.payment_status === 'unpaid').length,
+    total_expected: visibleContributions.length * TOTAL_CONTRIBUTION,
+    total_collected: visibleContributions.reduce((sum, c) => sum + parseFloat(c.amount_paid || '0'), 0),
+    total_outstanding: visibleContributions.reduce((sum, c) => sum + parseFloat(c.outstanding_amount || '0'), 0),
   };
 
   const collectionRate = stats.total > 0 ? ((stats.total_collected / stats.total_expected) * 100).toFixed(1) : 0;
 
-  if (loading && contributions.length === 0) {
+  if (loading && visibleContributions.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -210,7 +179,7 @@ const ContributionManagement: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm">Total Expected</p>
+              <p className="text-gray-600 text-sm">Page Expected</p>
               <p className="text-2xl font-bold text-gray-900">
                 KSh {stats.total_expected.toLocaleString()}
               </p>
@@ -222,7 +191,7 @@ const ContributionManagement: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm">Total Collected</p>
+              <p className="text-gray-600 text-sm">Page Collected</p>
               <p className="text-2xl font-bold text-green-600">
                 KSh {stats.total_collected.toLocaleString()}
               </p>
@@ -234,7 +203,7 @@ const ContributionManagement: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm">Outstanding</p>
+              <p className="text-gray-600 text-sm">Page Outstanding</p>
               <p className="text-2xl font-bold text-red-600">
                 KSh {stats.total_outstanding.toLocaleString()}
               </p>
@@ -246,7 +215,7 @@ const ContributionManagement: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-600 text-sm">Collection Rate</p>
+              <p className="text-gray-600 text-sm">Page Collection Rate</p>
               <p className="text-2xl font-bold text-purple-600">
                 {collectionRate}%
               </p>
@@ -260,7 +229,7 @@ const ContributionManagement: React.FC = () => {
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex gap-4 items-center">
           <div className="flex-1">
-            <SearchBar value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search by customer name or account number..." />
+            <SearchBar value={searchTerm} onChange={(e: { target: { value: string; }; }) => setSearchTerm(e.target.value)} placeholder="Search by customer name or account number..." />
           </div>
         </div>
       </div>
@@ -298,7 +267,7 @@ const ContributionManagement: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {contributions.map((contribution) => (
+            {visibleContributions.map((contribution) => (
               <tr key={contribution.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
@@ -347,7 +316,7 @@ const ContributionManagement: React.FC = () => {
           </tbody>
         </table>
 
-        {contributions.length === 0 && (
+        {visibleContributions.length === 0 && !loading && (
           <div className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-2" />
             <p className="text-gray-600">No contributions found for the selected period</p>
@@ -355,19 +324,17 @@ const ContributionManagement: React.FC = () => {
         )}
       </div>
 
-      {/* Pagination */}
       <PaginationControls
         currentPage={currentPage}
         totalPages={totalPages}
         hasPrev={hasPrev}
         hasNext={hasNext}
-        onPageChange={(n) => setCurrentPage(n)}
+        onPageChange={(n: number) => setCurrentPage(n)}
         itemsPerPage={itemsPerPage}
-        onItemsPerPageChange={(n) => setItemsPerPage(n)}
+        onItemsPerPageChange={(n: number) => setItemsPerPage(n)}
         totalItems={totalItems}
       />
 
-      {/* Generate Modal */}
       {showGenerateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 rounded-lg">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
@@ -394,7 +361,6 @@ const ContributionManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Payment Modal */}
       {showPaymentModal && selectedContribution && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 rounded-lg">
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
