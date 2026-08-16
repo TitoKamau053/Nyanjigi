@@ -402,8 +402,7 @@ async processCustomerAdvances(customerId) {
         if (outstanding > 0) {
           const allocated = await useAdvance(outstanding, bill.id, 'bill_payment', `Paid from Advance Balance`);
           if (allocated > 0) {
-            const newStatus = (alreadyPaid + allocated) >= parseFloat(bill.total_amount) ? 'paid' : 'partially_paid';
-            await Bill.updateBillStatus(bill.id, newStatus, newStatus === 'paid' ? new Date() : null);
+            await Bill.reconcileBillStatus(bill.id);
             allocatedCount++;
           }
         }

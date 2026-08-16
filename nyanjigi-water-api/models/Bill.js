@@ -378,6 +378,60 @@ class Bill extends BaseModel {
 
   // Add this method to your Bill class in Bill.js
 
+  async getOutstandingAmount(billId) {
+    try {
+      const bill = await this.findById(billId);
+      if (!bill) return 0;
+
+      const paymentResult = await executeQuery(
+        `SELECT COALESCE(SUM(amount), 0) AS total_paid
+         FROM payment_allocations
+         WHERE bill_id = ? AND allocation_type = 'bill_payment'`,
+        [billId]
+      );
+
+      const totalAmount = parseFloat(bill.total_amount) || 0;
+      const totalPaid = parseFloat(paymentResult[0]?.total_paid || 0);
+      return Math.max(0, totalAmount - totalPaid);
+    } catch (error) {
+      console.error('Error calculating bill outstanding amount:', error);
+      throw error;
+    }
+  }
+
+  async reconcileBillStatus(billId) {
+    try {
+      const bill = await this.findById(billId);
+      if (!bill) return null;
+
+      const outstanding = await this.getOutstandingAmount(billId);
+      const totalAmount = parseFloat(bill.total_amount) || 0;
+      const paidAmount = Math.max(0, totalAmount - outstanding);
+
+      let status = 'pending';
+      if (paidAmount <= 0) {
+        status = bill.due_date < new Date().toISOString().slice(0, 10) ? 'overdue' : 'pending';
+      } else if (outstanding <= 0) {
+        status = 'paid';
+      } else {
+        status = 'partially_paid';
+      }
+
+      const paidAt = status === 'paid' ? new Date() : null;
+      await executeQuery(
+        `UPDATE bills
+         SET status = ?, paid_at = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [status, paidAt, billId]
+      );
+
+      return await this.findById(billId);
+    } catch (error) {
+      console.error('Error reconciling bill status:', error);
+      throw error;
+    }
+  }
+
   async updateBillStatus(billId, status, paidAt = null) {
     try {
       const query = `

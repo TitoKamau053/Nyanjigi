@@ -564,8 +564,18 @@ class EquityController {
       for (const bill of bills) {
         if (availableAmount <= 0) break;
 
-        const billOutstanding = parseFloat(bill.total_amount);
+        const Bill = require('../models/Bill');
+        const billOutstanding = await Bill.getOutstandingAmount(bill.id);
+
+        if (billOutstanding <= 0) {
+          continue;
+        }
+
         const allocationAmount = Math.min(availableAmount, billOutstanding);
+
+        if (allocationAmount <= 0) {
+          continue;
+        }
 
         // Insert allocation record
         const allocationQuery = `
@@ -575,12 +585,9 @@ class EquityController {
         `;
         await executeQuery(allocationQuery, [paymentId, bill.id, allocationAmount]);
 
-        // Update bill status
-        const newStatus = allocationAmount >= billOutstanding ? 'paid' : 'partially_paid';
-        const paidAt = newStatus === 'paid' ? new Date() : null;
-        
-        const Bill = require('../models/Bill');
-        await Bill.updateBillStatus(bill.id, newStatus, paidAt);
+        // Recalculate the real outstanding amount after applying payment
+        const updatedBill = await Bill.reconcileBillStatus(bill.id);
+        const newStatus = updatedBill ? updatedBill.status : 'partially_paid';
 
         availableAmount -= allocationAmount;
         allocated += allocationAmount;

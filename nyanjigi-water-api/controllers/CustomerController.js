@@ -8,6 +8,16 @@ const { executeQuery } = require('../config/database');
  * Customer Controller - Handles customer authentication and account management
  */
 class CustomerController {
+  static async applyManualPaymentAllocation(customerId, paymentId, amount, referenceType = 'general') {
+    try {
+      const EquityController = require('./EquityController');
+      return await EquityController.allocatePayment(paymentId, customerId, parseFloat(amount), referenceType);
+    } catch (error) {
+      console.error('[CustomerController] Manual payment allocation failed:', error);
+      throw error;
+    }
+  }
+
   // Customer login
   static async login(req, res) {
     try {
@@ -335,12 +345,13 @@ class CustomerController {
             absAmount
           ]);
 
-          // Allocate as Advance
-          const allocQuery = `
-            INSERT INTO payment_allocations (payment_id, allocation_type, amount, notes)
-            VALUES (?, 'advance', ?, 'Initial System Credit')
-          `;
-          await executeQuery(allocQuery, [result.insertId, absAmount]);
+          // Allocate against outstanding bills first; only allow advance if no debt remains
+          await CustomerController.applyManualPaymentAllocation(
+            newCustomer.id,
+            result.insertId,
+            absAmount,
+            'general'
+          );
         }
       }
       //END INITIAL BALANCE
@@ -425,12 +436,13 @@ class CustomerController {
           notes || 'Manual Balance Adjustment (Credit)'
         ]);
 
-        // Allocate as Advance
-        const allocQuery = `
-            INSERT INTO payment_allocations (payment_id, allocation_type, amount, notes)
-            VALUES (?, 'advance', ?, ?)
-        `;
-        await executeQuery(allocQuery, [result.insertId, absAmount, notes || 'Manual Credit Adjustment']);
+        // Allocate against outstanding bills first; only create an advance if no debt remains
+        await CustomerController.applyManualPaymentAllocation(
+          customerId,
+          result.insertId,
+          absAmount,
+          'general'
+        );
       }
 
       return ApiResponse.success(res, null, 'Balance adjusted successfully');
