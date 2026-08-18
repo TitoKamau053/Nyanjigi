@@ -1,4 +1,5 @@
 const BaseModel = require('./BaseModel');
+const Customer = require('./Customer');
 const { executeQuery } = require('../config/database');
 const AuthUtils = require('../utils/auth');
 
@@ -88,7 +89,15 @@ class Admin extends BaseModel {
 
       // 3. Outstanding Bills
       const [outstandingBillsRes] = await executeQuery(`
-        SELECT COALESCE(SUM(total_amount), 0) as total FROM bills WHERE status IN ('pending', 'overdue')
+        SELECT COALESCE(SUM(b.total_amount - COALESCE(pa.paid, 0)), 0) as total
+        FROM bills b
+        LEFT JOIN (
+          SELECT bill_id, SUM(amount) AS paid
+          FROM payment_allocations
+          WHERE allocation_type = 'bill_payment'
+          GROUP BY bill_id
+        ) pa ON pa.bill_id = b.id
+        WHERE b.status IN ('pending', 'overdue', 'partially_paid')
       `);
 
       // 4. Pending Contributions
@@ -230,12 +239,12 @@ class Admin extends BaseModel {
       const query = `
         SELECT 
           c.id, c.account_number, c.full_name, c.phone,
-          COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) as outstanding_bills,
-          COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) as outstanding_fines,
+          ${Customer.constructor.getOutstandingBillsSubquery('c.id')} as outstanding_bills,
+          ${Customer.constructor.getOutstandingFinesSubquery('c.id')} as outstanding_fines,
           COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0) as outstanding_contributions,
           (
-            COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) +
-            COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) +
+            ${Customer.constructor.getOutstandingBillsSubquery('c.id')} +
+            ${Customer.constructor.getOutstandingFinesSubquery('c.id')} +
             COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0)
           ) as total_outstanding
         FROM customers c
@@ -294,8 +303,15 @@ class Admin extends BaseModel {
             AND YEAR(payment_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
         `),
         executeQuery(`
-          SELECT COALESCE(SUM(total_amount), 0) as total FROM bills
-          WHERE status IN ('pending', 'overdue', 'partially_paid')
+          SELECT COALESCE(SUM(b.total_amount - COALESCE(pa.paid, 0)), 0) as total
+          FROM bills b
+          LEFT JOIN (
+            SELECT bill_id, SUM(amount) AS paid
+            FROM payment_allocations
+            WHERE allocation_type = 'bill_payment'
+            GROUP BY bill_id
+          ) pa ON pa.bill_id = b.id
+          WHERE b.status IN ('pending', 'overdue', 'partially_paid')
         `),
         executeQuery(`
           SELECT COALESCE(SUM(amount_required - amount_paid), 0) as total
@@ -491,8 +507,8 @@ class Admin extends BaseModel {
     const rows = await executeQuery(`
       SELECT
         c.id, c.account_number, c.full_name, c.zone,
-        COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status IN ('pending', 'overdue', 'partially_paid')), 0) as outstanding_bills,
-        COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status = 'pending'), 0) as outstanding_fines,
+        ${Customer.constructor.getOutstandingBillsSubquery('c.id')} as outstanding_bills,
+        ${Customer.constructor.getOutstandingFinesSubquery('c.id')} as outstanding_fines,
         COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0) as outstanding_contributions
       FROM customers c
       WHERE c.is_active = TRUE

@@ -155,6 +155,7 @@ CREATE TABLE payment_allocations (
     id INT PRIMARY KEY AUTO_INCREMENT,
     payment_id INT NOT NULL,
     bill_id INT NULL, -- NULL for advance payments or contributions
+    fine_id INT NULL,
     allocation_type ENUM('bill_payment', 'contribution', 'fine', 'advance') NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     notes TEXT NULL,
@@ -162,8 +163,10 @@ CREATE TABLE payment_allocations (
     
     FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE,
     FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
+    FOREIGN KEY (fine_id) REFERENCES applied_fines(id) ON DELETE CASCADE,
     INDEX idx_payment_id (payment_id),
     INDEX idx_bill_id (bill_id),
+    INDEX idx_fine_id (fine_id),
     INDEX idx_allocation_type (allocation_type)
 );
 

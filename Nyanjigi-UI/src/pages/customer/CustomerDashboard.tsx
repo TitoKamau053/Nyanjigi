@@ -23,6 +23,8 @@ interface DashboardData {
     total_amount?: number;
     due_date: string;
     status: string;
+    consolidated_into_bill_id?: number | null;
+    consolidated_into_bill_number?: string | null;
   }>;
   recent_payments: Array<{
     id: number;
@@ -188,9 +190,9 @@ const CustomerDashboard: React.FC = () => {
             </h3>
           </div>
           <div className="p-6">
-            {recent_bills.length > 0 ? (
+            {recent_bills.filter(b => b.status !== 'consolidated').length > 0 ? (
               <div className="space-y-4">
-                {recent_bills.slice(0, 3).map((bill) => (
+                {recent_bills.filter(b => b.status !== 'consolidated').slice(0, 3).map((bill) => (
                   <div key={bill.id} className="flex items-center justify-between p-3 bg-white/30 rounded-lg">
                     <div>
                       <p className="font-medium text-gray-900">
@@ -202,13 +204,19 @@ const CustomerDashboard: React.FC = () => {
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-gray-900">KES {(bill.total_amount ?? 0).toLocaleString()}</p>
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        bill.status === 'paid' ? 'bg-green-100 text-green-800' :
-                        bill.status === 'overdue' ? 'bg-red-100 text-red-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {bill.status}
-                      </span>
+                      {bill.status === 'consolidated' ? (
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-600">
+                          Rolled into {bill.consolidated_into_bill_number || 'next bill'}
+                        </span>
+                      ) : (
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          bill.status === 'paid' ? 'bg-green-100 text-green-800' :
+                          bill.status === 'overdue' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {bill.status}
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -61,9 +61,9 @@ class NotificationController {
       
       const baseSelect = `
         SELECT c.id, c.full_name, c.phone, c.account_number, c.zone,
-        COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) as total_bill,
+        ${Customer.constructor.getOutstandingBillsSubquery('c.id')} as total_bill,
         COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND payment_status != 'fully_paid'), 0) as contribution_balance,
-        COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status = 'pending'), 0) as total_fines
+        ${Customer.constructor.getOutstandingFinesSubquery('c.id')} as total_fines
         FROM customers c WHERE c.is_active = 1
       `;
 

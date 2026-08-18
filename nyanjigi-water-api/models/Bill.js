@@ -1,4 +1,5 @@
 const BaseModel = require('./BaseModel');
+const Customer = require('./Customer');
 const { executeQuery, executeTransaction } = require('../config/database');
 const moment = require('moment');
 
@@ -26,6 +27,8 @@ class Bill extends BaseModel {
       const billingDate = moment(billingMonth).startOf('month');
       const previousMonth = billingDate.clone().subtract(1, 'month');
 
+      const outstandingBillSubquery = Customer.constructor.getOutstandingBillsSubquery('c.id');
+
       // Get billing settings
       const settingsQuery = `
         SELECT setting_key, setting_value 
@@ -49,8 +52,8 @@ class Bill extends BaseModel {
       let customerQuery = `
               SELECT c.id, c.account_number, c.full_name, c.phone, c.customer_type,
                     mr.previous_reading, mr.current_reading, mr.id as reading_id,
-                    COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) as previous_balance,
-                    COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) as outstanding_fines,
+                    ${Customer.constructor.getOutstandingBillsSubquery('c.id')} as previous_balance,
+                    COALESCE((SELECT SUM(af.amount - COALESCE(pa.paid, 0)) FROM applied_fines af LEFT JOIN (SELECT fine_id, SUM(amount) AS paid FROM payment_allocations WHERE allocation_type = 'fine' GROUP BY fine_id) pa ON pa.fine_id = af.id WHERE af.customer_id = c.id AND af.status != 'paid'), 0) as outstanding_fines,
                     COALESCE((SELECT SUM(amount_paid) FROM contributions WHERE customer_id = c.id), 0) as total_contributions_paid
               FROM customers c
               LEFT JOIN meter_readings mr ON c.id = mr.customer_id AND mr.reading_month = ? AND mr.is_billed = FALSE
@@ -89,81 +92,122 @@ class Bill extends BaseModel {
       const dueDate = billingDate.clone().add(paymentDueDays, 'days').format('YYYY-MM-DD');
       const notifications = [];
 
-      // Prepare bill data for bulk insert with flat rate based on customer type
-  const billsData = customers.map(customer => {
-    let currentCharges = 0;
-    let validUnits = 0;
+      const billsData = customers.map(customer => {
+        let currentCharges = 0;
+        let validUnits = 0;
 
-    //Meters will be deployed later, and readings exist, calculate by units.
-  if (customer.current_reading !== null && customer.previous_reading !== null && customer.customer_type !== 'flat_rate') {
-      const unitsConsumed = customer.current_reading - customer.previous_reading;
-      validUnits = unitsConsumed > 0 ? unitsConsumed : 0; 
-      currentCharges = validUnits * ratePerUnit;
-  } else {
-      // Apply tiered flat rate pricing when meter readings are not available.
-      if (customer.customer_type === 'institution') {
-        currentCharges = 1000.00;
-      } else if (customer.customer_type === 'normal') {
-        currentCharges = 300.00;
-      } else {
-        currentCharges = parseFloat(settingsMap.default_flat_rate) || 0;
-      }
-  }
+        if (customer.current_reading !== null && customer.previous_reading !== null && customer.customer_type !== 'flat_rate') {
+          const unitsConsumed = customer.current_reading - customer.previous_reading;
+          validUnits = unitsConsumed > 0 ? unitsConsumed : 0;
+          currentCharges = validUnits * ratePerUnit;
+        } else {
+          if (customer.customer_type === 'institution') {
+            currentCharges = 1000.00;
+          } else if (customer.customer_type === 'normal') {
+            currentCharges = 300.00;
+          } else {
+            currentCharges = parseFloat(settingsMap.default_flat_rate) || 0;
+          }
+        }
 
-    const previousOutstanding = parseFloat(customer.previous_balance || 0);
-    const outstandingFines = parseFloat(customer.outstanding_fines || 0);
-    const contributionsPaid = parseFloat(customer.total_contributions_paid || 0);
-    const contributionOutstanding = Math.max(0, totalContributionTarget - contributionsPaid);
-    const totalAmount = currentCharges;
+        const previousOutstanding = parseFloat(customer.previous_balance || 0);
+        const outstandingFines = parseFloat(customer.outstanding_fines || 0);
+        const contributionsPaid = parseFloat(customer.total_contributions_paid || 0);
+        const contributionOutstanding = Math.max(0, totalContributionTarget - contributionsPaid);
+        const totalAmount = currentCharges + previousOutstanding;
 
-    notifications.push({
-      customer_id: customer.id,
-      customer_name: customer.full_name,
-      phone: customer.phone,
-      account_number: customer.account_number,
-      billing_month_label: previousMonth.format('MMMM YYYY'),
-      previous_outstanding: previousOutstanding,
-      outstanding_fines: outstandingFines,
-      monthly_contribution_amount: monthlyContributionAmount,
-      contribution_outstanding: contributionOutstanding,
-      contribution_target: totalContributionTarget,
-      payment_grace_days: paymentDueDays,
-      current_month_charge: currentCharges, 
-      units_consumed: validUnits
-    });
+        notifications.push({
+          customer_id: customer.id,
+          customer_name: customer.full_name,
+          phone: customer.phone,
+          account_number: customer.account_number,
+          billing_month_label: previousMonth.format('MMMM YYYY'),
+          previous_outstanding: previousOutstanding,
+          outstanding_fines: outstandingFines,
+          monthly_contribution_amount: monthlyContributionAmount,
+          contribution_outstanding: contributionOutstanding,
+          contribution_target: totalContributionTarget,
+          payment_grace_days: paymentDueDays,
+          current_month_charge: currentCharges,
+          units_consumed: validUnits
+        });
 
-    return {
-      customer_id: customer.id,
-      bill_number: this.generateBillNumber(customer.id, billingDate.toDate()),
-      billing_period_start: periodStart,
-      billing_period_end: periodEnd,
-      previous_balance: 0,
-      current_charges: currentCharges,
-      fines_applied: 0,
-      total_amount: totalAmount,
-      due_date: dueDate,
-      status: 'pending',
-      bill_type: 'flat_rate',
-      meter_reading_previous: 0,
-      meter_reading_current: 0,
-      units_consumed: validUnits,
-      rate_per_unit: ratePerUnit
-    };
-  });
+        return {
+          customer_id: customer.id,
+          bill_number: this.generateBillNumber(customer.id, billingDate.toDate()),
+          billing_period_start: periodStart,
+          billing_period_end: periodEnd,
+          previous_balance: previousOutstanding,
+          current_charges: currentCharges,
+          fines_applied: 0,
+          total_amount: totalAmount,
+          due_date: dueDate,
+          status: 'pending',
+          bill_type: 'flat_rate',
+          meter_reading_previous: 0,
+          meter_reading_current: 0,
+          units_consumed: validUnits,
+          rate_per_unit: ratePerUnit
+        };
+      });
 
-    // Bulk insert bills ONLY ONCE
       if (billsData.length > 0) {
-        await this.bulkInsert(billsData);
-        
-        // update meter readings if they actually exist
-        // The filter removes 'null' values caused by the LEFT JOIN for unmetered customers
+        const transactionQueries = [];
         const readingIds = customers
-            .map(c => c.reading_id)
-            .filter(id => id !== null && id !== undefined); 
+          .map(c => c.reading_id)
+          .filter(id => id !== null && id !== undefined);
+
+        for (const billData of billsData) {
+          transactionQueries.push({
+            query: `
+              INSERT INTO bills (
+                customer_id, bill_number, billing_period_start, billing_period_end,
+                previous_balance, current_charges, fines_applied, total_amount,
+                due_date, status, bill_type, meter_reading_previous,
+                meter_reading_current, units_consumed, rate_per_unit
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            params: [
+              billData.customer_id,
+              billData.bill_number,
+              billData.billing_period_start,
+              billData.billing_period_end,
+              billData.previous_balance,
+              billData.current_charges,
+              billData.fines_applied,
+              billData.total_amount,
+              billData.due_date,
+              billData.status,
+              billData.bill_type,
+              billData.meter_reading_previous,
+              billData.meter_reading_current,
+              billData.units_consumed,
+              billData.rate_per_unit
+            ]
+          });
+
+          if (billData.previous_balance > 0) {
+            transactionQueries.push({
+              query: `
+                UPDATE bills
+                SET status = 'consolidated', consolidated_into_bill_id = LAST_INSERT_ID(), updated_at = NOW()
+                WHERE customer_id = ?
+                  AND status IN ('pending', 'overdue', 'partially_paid')
+                  AND id != LAST_INSERT_ID()
+              `,
+              params: [billData.customer_id]
+            });
+          }
+        }
 
         if (readingIds.length > 0) {
-          await executeQuery(`UPDATE meter_readings SET is_billed = TRUE WHERE id IN (${readingIds.join(',')})`);
+          transactionQueries.push({
+            query: `UPDATE meter_readings SET is_billed = TRUE WHERE id IN (${readingIds.map(() => '?').join(',')})`,
+            params: readingIds
+          });
         }
+
+        await executeTransaction(transactionQueries);
       }
 
       console.log('Bills generated. Now processing automatic payments from advances');
@@ -231,7 +275,7 @@ class Bill extends BaseModel {
       }
 
       if (filters.overdue) {
-        conditions.push("b.due_date < CURDATE() AND b.status != 'paid'");
+        conditions.push("b.due_date < CURDATE() AND b.status NOT IN ('paid', 'consolidated')");
       }
 
       if (filters.search) {
@@ -253,7 +297,7 @@ class Bill extends BaseModel {
           c.full_name as customer_name,
           c.phone as customer_phone,
           CASE
-            WHEN b.due_date < CURDATE() AND b.status != 'paid' THEN 'overdue'
+            WHEN b.due_date < CURDATE() AND b.status NOT IN ('paid', 'consolidated') THEN 'overdue'
             ELSE b.status
           END as display_status
         FROM bills b
@@ -463,7 +507,7 @@ async getOverdueBills(limit = 100) {
       FROM bills b
       INNER JOIN customers c ON b.customer_id = c.id
       WHERE b.due_date < CURDATE() 
-      AND b.status != 'paid'
+      AND b.status NOT IN ('paid', 'consolidated')
       AND c.is_active = TRUE
       ORDER BY b.due_date ASC
       LIMIT ${limitInt}
@@ -486,13 +530,19 @@ async getOverdueBills(limit = 100) {
       const query = `
         SELECT 
           COUNT(*) as total_bills,
-          COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_bills,
-          COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_bills,
-          COUNT(CASE WHEN status = 'overdue' OR (due_date < CURDATE() AND status != 'paid') THEN 1 END) as overdue_bills,
-          COALESCE(SUM(CASE WHEN status != 'paid' THEN total_amount ELSE 0 END), 0) as outstanding_amount,
-          COALESCE(SUM(CASE WHEN status = 'paid' THEN total_amount ELSE 0 END), 0) as total_paid
-        FROM bills 
-        WHERE customer_id = ?
+          COUNT(CASE WHEN b.status = 'paid' THEN 1 END) as paid_bills,
+          COUNT(CASE WHEN b.status = 'pending' THEN 1 END) as pending_bills,
+          COUNT(CASE WHEN b.status = 'overdue' OR (b.due_date < CURDATE() AND b.status NOT IN ('paid', 'consolidated')) THEN 1 END) as overdue_bills,
+          COALESCE(SUM(CASE WHEN b.status NOT IN ('paid', 'consolidated') THEN b.total_amount - COALESCE(pa.paid, 0) ELSE 0 END), 0) as outstanding_amount,
+          COALESCE(SUM(CASE WHEN b.status = 'paid' THEN b.total_amount ELSE 0 END), 0) as total_paid
+        FROM bills b
+        LEFT JOIN (
+          SELECT bill_id, SUM(amount) AS paid
+          FROM payment_allocations
+          WHERE allocation_type = 'bill_payment'
+          GROUP BY bill_id
+        ) pa ON pa.bill_id = b.id
+        WHERE b.customer_id = ?
       `;
 
       const result = await executeQuery(query, [customerId]);

@@ -141,6 +141,41 @@ class Customer extends BaseModel {
       throw error;
     }
   }
+
+  static getOutstandingBillsSubquery(customerExpression) {
+    return `
+      COALESCE((
+        SELECT SUM(b.total_amount - COALESCE(pa.paid, 0))
+        FROM bills b
+        LEFT JOIN (
+          SELECT bill_id, SUM(amount) AS paid
+          FROM payment_allocations
+          WHERE allocation_type = 'bill_payment'
+          GROUP BY bill_id
+        ) pa ON pa.bill_id = b.id
+        WHERE b.customer_id = ${customerExpression}
+          AND b.status NOT IN ('paid', 'consolidated')
+      ), 0)
+    `;
+  }
+
+  static getOutstandingFinesSubquery(customerExpression) {
+    return `
+      COALESCE((
+        SELECT SUM(af.amount - COALESCE(pa.paid, 0))
+        FROM applied_fines af
+        LEFT JOIN (
+          SELECT fine_id, SUM(amount) AS paid
+          FROM payment_allocations
+          WHERE allocation_type = 'fine'
+          GROUP BY fine_id
+        ) pa ON pa.fine_id = af.id
+        WHERE af.customer_id = ${customerExpression}
+          AND af.status != 'paid'
+      ), 0)
+    `;
+  }
+
   // Get customers with pagination, search, and dynamic balance calculation
   async getCustomersWithPagination(page = 1, limit = 10, search = '', status = '') {
     try {
@@ -177,14 +212,13 @@ class Customer extends BaseModel {
         whereClause = `WHERE ${conditions.join(' AND ')}`;
       }
 
-      // --- THE FIX: Added subqueries to dynamically calculate total_debt ---
       const customersQuery = `
         SELECT
           id, account_number, full_name, phone, email, location, zone,
           meter_number, connection_date, is_active, created_at, customer_type,
           (
-            COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = customers.id AND status != 'paid'), 0) +
-            COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = customers.id AND status != 'paid'), 0) +
+            ${Customer.getOutstandingBillsSubquery('customers.id')} +
+            ${Customer.getOutstandingFinesSubquery('customers.id')} +
             COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = customers.id AND status != 'completed'), 0)
           ) AS total_debt
         FROM customers
@@ -226,14 +260,8 @@ class Customer extends BaseModel {
       const query = `
         SELECT 
           c.*,
-          COALESCE(
-            (SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'),
-            0
-          ) as outstanding_bills,
-          COALESCE(
-            (SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'),
-            0
-          ) as outstanding_fines,
+          ${Customer.getOutstandingBillsSubquery('c.id')} as outstanding_bills,
+          ${Customer.getOutstandingFinesSubquery('c.id')} as outstanding_fines,
           COALESCE(
             (SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'),
             0
@@ -266,8 +294,8 @@ class Customer extends BaseModel {
           c.zone,
           COUNT(c.id) as total_customers,
           COALESCE(SUM(
-            COALESCE((SELECT SUM(total_amount) FROM bills WHERE customer_id = c.id AND status != 'paid'), 0) +
-            COALESCE((SELECT SUM(amount) FROM applied_fines WHERE customer_id = c.id AND status != 'paid'), 0) +
+            ${Customer.getOutstandingBillsSubquery('c.id')} +
+            ${Customer.getOutstandingFinesSubquery('c.id')} +
             COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = c.id AND status != 'completed'), 0)
           ), 0) AS zone_total_debt
         FROM customers c

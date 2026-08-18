@@ -128,13 +128,26 @@ class EquityController {
       const balanceQuery = `
         SELECT COALESCE(SUM(outstanding), 0) as total_outstanding 
         FROM (
-          SELECT SUM(total_amount) as outstanding
-          FROM bills
-          WHERE customer_id = ? AND status IN ('pending', 'overdue', 'partially_paid')
+          SELECT SUM(b.total_amount - COALESCE(pa.paid, 0)) as outstanding
+          FROM bills b
+          LEFT JOIN (
+            SELECT bill_id, SUM(amount) AS paid
+            FROM payment_allocations
+            WHERE allocation_type = 'bill_payment'
+            GROUP BY bill_id
+          ) pa ON pa.bill_id = b.id
+          WHERE b.customer_id = ? AND b.status IN ('pending', 'overdue', 'partially_paid')
+            AND b.status != 'consolidated'
           UNION ALL
-          SELECT SUM(amount) as outstanding
-          FROM applied_fines
-          WHERE customer_id = ? AND status = 'pending'
+          SELECT SUM(af.amount - COALESCE(pa.paid, 0)) as outstanding
+          FROM applied_fines af
+          LEFT JOIN (
+            SELECT fine_id, SUM(amount) AS paid
+            FROM payment_allocations
+            WHERE allocation_type = 'fine'
+            GROUP BY fine_id
+          ) pa ON pa.fine_id = af.id
+          WHERE af.customer_id = ? AND af.status != 'paid'
           UNION ALL
           SELECT SUM(amount_required - amount_paid) as outstanding
           FROM contributions
@@ -641,11 +654,12 @@ class EquityController {
         // Insert allocation
         const allocationQuery = `
           INSERT INTO payment_allocations 
-          (payment_id, allocation_type, amount, notes)
-          VALUES (?, 'fine', ?, ?)
+          (payment_id, bill_id, fine_id, allocation_type, amount, notes)
+          VALUES (?, NULL, ?, 'fine', ?, ?)
         `;
         await executeQuery(allocationQuery, [
-          paymentId, 
+          paymentId,
+          fine.id,
           allocationAmount,
           `Fine payment: ${fine.reason}`
         ]);

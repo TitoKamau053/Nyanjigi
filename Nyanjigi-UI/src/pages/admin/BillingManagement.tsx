@@ -16,13 +16,15 @@ interface Bill {
   current_charges: number;
   billing_month: string;
   due_date: string;
-  status: 'pending' | 'paid' | 'overdue' | 'partially_paid';
+  status: 'pending' | 'paid' | 'overdue' | 'partially_paid' | 'consolidated';
   created_at: string;
   bill_type: 'flat_rate' | 'metered';
   meter_reading_previous?: number;
   meter_reading_current?: number;
   units_consumed?: number;
   rate_per_unit?: number;
+  consolidated_into_bill_id?: number | null;
+  consolidated_into_bill_number?: string | null;
 }
 
 interface EditBillModalProps {
@@ -32,10 +34,12 @@ interface EditBillModalProps {
 }
 
 const EditBillModal = ({ bill, onClose, onSave }: EditBillModalProps) => {
-  const [status, setStatus] = useState(bill.status);
+  const [status, setStatus] = useState<'pending' | 'paid' | 'overdue' | 'partially_paid'>(
+    bill.status as 'pending' | 'paid' | 'overdue' | 'partially_paid'
+  );
 
   const handleSave = () => {
-    const updatedBill = { ...bill, status };
+    const updatedBill = { ...bill, status } as Bill;
     onSave(updatedBill);
   };
 
@@ -51,21 +55,32 @@ const EditBillModal = ({ bill, onClose, onSave }: EditBillModalProps) => {
             <p className="text-sm text-gray-600">Account: {bill.account_number}</p>
             <p className="text-sm text-gray-600">Amount: KES {Number(bill.total_amount).toLocaleString()}</p>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status
-            </label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as Bill['status'])}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="pending">Pending</option>
-              <option value="paid">Paid</option>
-              <option value="overdue">Overdue</option>
-              <option value="partially_paid">Partially Paid</option>
-            </select>
-          </div>
+          {bill.status === 'consolidated' ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+              <p className="text-sm text-gray-600 mb-2">
+                <strong>Status:</strong> <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-600">Consolidated</span>
+              </p>
+              <p className="text-xs text-gray-500 italic">
+                This bill was consolidated into {bill.consolidated_into_bill_number || 'another bill'}. Consolidated bills cannot be edited.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Status
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as 'pending' | 'paid' | 'overdue' | 'partially_paid')}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="overdue">Overdue</option>
+                <option value="partially_paid">Partially Paid</option>
+              </select>
+            </div>
+          )}
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <button
@@ -74,12 +89,14 @@ const EditBillModal = ({ bill, onClose, onSave }: EditBillModalProps) => {
           >
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Save Changes
-          </button>
+          {bill.status !== 'consolidated' && (
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Save Changes
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -210,11 +227,13 @@ const BillingManagement: React.FC = () => {
       case 'pending': return 'bg-yellow-100 text-yellow-800';
       case 'overdue': return 'bg-red-100 text-red-800';
       case 'cancelled': return 'bg-gray-100 text-gray-800';
+      case 'consolidated': return 'bg-gray-200 text-gray-600';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
   const getDisplayStatus = (bill: Bill) => {
+    if (bill.status === 'consolidated') return 'consolidated';
     if (bill.status !== 'paid' && new Date(bill.due_date) < new Date()) {
       return 'overdue';
     }
@@ -222,8 +241,8 @@ const BillingManagement: React.FC = () => {
   };
 
   const totalAmount = Math.round(visibleBills.filter((b: Bill) => b.status === 'paid').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
-  const pendingAmount = Math.round(visibleBills.filter((b: Bill) => getDisplayStatus(b) === 'pending').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
-  const overdueAmount = Math.round(visibleBills.filter((b: Bill) => getDisplayStatus(b) === 'overdue').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
+  const pendingAmount = Math.round(visibleBills.filter((b: Bill) => getDisplayStatus(b) === 'pending' && b.status !== 'consolidated').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
+  const overdueAmount = Math.round(visibleBills.filter((b: Bill) => getDisplayStatus(b) === 'overdue' && b.status !== 'consolidated').reduce((sum: number, bill: Bill) => sum + Number(bill.total_amount || 0), 0));
 
   if (loading && visibleBills.length === 0) {
     return (
@@ -290,6 +309,7 @@ const BillingManagement: React.FC = () => {
             <option value="paid">Paid</option>
             <option value="overdue">Overdue</option>
             <option value="partially_paid">Partially Paid</option>
+            <option value="consolidated">Consolidated</option>
           </select>
         </div>
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-4 border border-white/30">
@@ -308,9 +328,15 @@ const BillingManagement: React.FC = () => {
           <div className="bg-white rounded-lg p-6 w-full max-w-lg">
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex justify-between">
               <span>View Bill Details</span>
-              <span className={`text-sm px-2 py-1 rounded-full ${getStatusColor(getDisplayStatus(selectedBill))}`}>
-                {getDisplayStatus(selectedBill).toUpperCase()}
-              </span>
+              {selectedBill.status === 'consolidated' && selectedBill.consolidated_into_bill_number ? (
+                <span className="text-sm px-2 py-1 rounded-full bg-gray-200 text-gray-600">
+                  Rolled into {selectedBill.consolidated_into_bill_number}
+                </span>
+              ) : (
+                <span className={`text-sm px-2 py-1 rounded-full ${getStatusColor(getDisplayStatus(selectedBill))}`}>
+                  {getDisplayStatus(selectedBill).toUpperCase()}
+                </span>
+              )}
             </h3>
             
             <div className="space-y-3">
@@ -324,6 +350,22 @@ const BillingManagement: React.FC = () => {
                   <p className="font-mono text-gray-900">{selectedBill.account_number}</p>
                 </div>
               </div>
+
+              {selectedBill.status === 'consolidated' && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <p className="text-sm text-gray-700 mb-2">
+                    <strong>Consolidation Status:</strong>
+                  </p>
+                  <p className="text-sm text-gray-600 italic">
+                    This bill was consolidated into the next billing cycle. It remains visible for audit purposes but is not part of the current active debt.
+                  </p>
+                  {selectedBill.consolidated_into_bill_number && (
+                    <p className="text-sm text-gray-600 mt-2">
+                      <strong>Rolled into:</strong> {selectedBill.consolidated_into_bill_number}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {selectedBill.bill_type === 'metered' ? (
                 <div className="border border-blue-100 bg-blue-50/50 p-4 rounded-lg space-y-2">
@@ -371,7 +413,8 @@ const BillingManagement: React.FC = () => {
           onClose={() => setShowEditModal(false)}
           onSave={async (updatedBill: Bill) => {
             try {
-              await adminService.updateBillStatus(updatedBill.id, { status: updatedBill.status });
+              const validStatus = updatedBill.status as 'pending' | 'paid' | 'overdue' | 'partially_paid';
+              await adminService.updateBillStatus(updatedBill.id, { status: validStatus });
               addToast('Bill updated successfully', 'success');
               setShowEditModal(false);
               await refresh();
@@ -447,8 +490,10 @@ const BillingManagement: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {visibleBills.map((bill) => (
-                <tr key={bill.id} className="hover:bg-blue-50/30 transition-colors">
+              {visibleBills.map((bill) => {
+                const isConsolidated = bill.status === 'consolidated';
+                return (
+                <tr key={bill.id} className={`transition-colors ${isConsolidated ? 'bg-gray-50 hover:bg-gray-100 opacity-75' : 'hover:bg-blue-50/30'}`}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">{bill.customer_name}</div>
                     <div className="text-xs font-mono text-gray-500">{bill.account_number}</div>
@@ -476,30 +521,41 @@ const BillingManagement: React.FC = () => {
                     <div className="text-sm text-gray-900">{new Date(bill.due_date).toLocaleDateString()}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(getDisplayStatus(bill))}`}>
-                      {getDisplayStatus(bill)}
-                    </span>
+                    {isConsolidated && bill.consolidated_into_bill_number ? (
+                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-200 text-gray-600">
+                        Rolled into {bill.consolidated_into_bill_number}
+                      </span>
+                    ) : (
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(getDisplayStatus(bill))}`}>
+                        {getDisplayStatus(bill)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center gap-3">
                       <button onClick={() => handleViewBill(bill.id)} className="text-blue-600 hover:text-blue-900" title="View Details">
                         View
                       </button>
-                      <button onClick={() => handleEditBill(bill.id)} className="text-indigo-600 hover:text-indigo-900" title="Edit Status">
-                        Edit
-                      </button>
-                      {getDisplayStatus(bill) !== 'paid' && (
-                        <button onClick={() => handleMarkPaid(bill.id)} className="text-green-600 hover:text-green-900" title="Mark Paid">
-                          Pay
-                        </button>
+                      {!isConsolidated && (
+                        <>
+                          <button onClick={() => handleEditBill(bill.id)} className="text-indigo-600 hover:text-indigo-900" title="Edit Status">
+                            Edit
+                          </button>
+                          {getDisplayStatus(bill) !== 'paid' && (
+                            <button onClick={() => handleMarkPaid(bill.id)} className="text-green-600 hover:text-green-900" title="Mark Paid">
+                              Pay
+                            </button>
+                          )}
+                          <button onClick={() => handleDeleteBill(bill.id)} className="text-red-600 hover:text-red-900" title="Delete">
+                            Delete
+                          </button>
+                        </>
                       )}
-                      <button onClick={() => handleDeleteBill(bill.id)} className="text-red-600 hover:text-red-900" title="Delete">
-                        Delete
-                      </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>

@@ -14,6 +14,8 @@ interface Bill {
   paid_at?: string;
   fines_applied: number;
   created_at: string;
+  consolidated_into_bill_id?: number | null;
+  consolidated_into_bill_number?: string | null;
 }
 
 const CustomerBills: React.FC = () => {
@@ -54,6 +56,7 @@ const CustomerBills: React.FC = () => {
 
 
   const getDisplayStatus = (bill: Bill) => {
+    if (bill.status === 'consolidated') return 'consolidated';
     if (bill.status === 'paid') return 'paid';
     if (bill.status === 'cancelled') return 'cancelled';
 
@@ -108,6 +111,7 @@ const CustomerBills: React.FC = () => {
       case 'pending': return 'bg-yellow-100 text-yellow-800';
       case 'overdue': return 'bg-red-100 text-red-800';
       case 'cancelled': return 'bg-gray-100 text-gray-800';
+      case 'consolidated': return 'bg-gray-200 text-gray-600';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -118,23 +122,24 @@ const CustomerBills: React.FC = () => {
       case 'pending': return '⏳';
       case 'overdue': return '⚠️';
       case 'cancelled': return '✕';
+      case 'consolidated': return '→';
       default: return '?';
     }
   };
 
-  const paidAmount = bills.filter(b => getDisplayStatus(b) === 'paid').reduce((sum, bill) => {
+  const paidAmount = bills.filter(b => getDisplayStatus(b) === 'paid' && b.status !== 'consolidated').reduce((sum, bill) => {
     const billAmount = Number(bill.total_amount) || 0;
     const finesAmount = Number(bill.fines_applied) || 0;
     return sum + billAmount + finesAmount;
   }, 0);
 
-  const pendingAmount = bills.filter(b => getDisplayStatus(b) === 'pending').reduce((sum, bill) => {
+  const pendingAmount = bills.filter(b => getDisplayStatus(b) === 'pending' && b.status !== 'consolidated').reduce((sum, bill) => {
     const billAmount = Number(bill.total_amount) || 0;
     const finesAmount = Number(bill.fines_applied) || 0;
     return sum + billAmount + finesAmount;
   }, 0);
 
-  const overdueAmount = bills.filter(b => getDisplayStatus(b) === 'overdue').reduce((sum, bill) => {
+  const overdueAmount = bills.filter(b => getDisplayStatus(b) === 'overdue' && b.status !== 'consolidated').reduce((sum, bill) => {
     const billAmount = Number(bill.total_amount) || 0;
     const finesAmount = Number(bill.fines_applied) || 0;
     return sum + billAmount + finesAmount;
@@ -227,9 +232,14 @@ const CustomerBills: React.FC = () => {
               const billTotal = Number(bill.total_amount) || 0;
               const finesTotal = Number(bill.fines_applied) || 0;
               const totalBillAmount = billTotal + finesTotal;
+              const isConsolidated = bill.status === 'consolidated';
 
               return (
-                <div key={bill.id} className="p-6 hover:bg-white/10 transition-colors">
+                <div key={bill.id} className={`p-6 transition-colors ${
+                  isConsolidated 
+                    ? 'bg-gray-50 hover:bg-gray-100 opacity-75' 
+                    : 'hover:bg-white/10'
+                }`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
@@ -254,10 +264,16 @@ const CustomerBills: React.FC = () => {
                     </div>
                     
                     <div className="text-right">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${getStatusColor(getDisplayStatus(bill))}`}>
-                          {getDisplayStatus(bill).toUpperCase()}
-                        </span>
+                      <div className="flex items-center gap-3 mb-2 justify-end">
+                        {isConsolidated && bill.consolidated_into_bill_number ? (
+                          <span className="inline-flex px-3 py-1 text-sm font-semibold rounded-full bg-gray-200 text-gray-600">
+                            Rolled into {bill.consolidated_into_bill_number}
+                          </span>
+                        ) : (
+                          <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${getStatusColor(getDisplayStatus(bill))}`}>
+                            {getDisplayStatus(bill).toUpperCase()}
+                          </span>
+                        )}
                       </div>
                       <p className="text-2xl font-bold text-gray-900">
                         {formatCurrency(totalBillAmount)}
@@ -271,28 +287,45 @@ const CustomerBills: React.FC = () => {
                   </div>
                   
                   <div className="mt-4 flex items-center gap-3">
-                    <button
-                      onClick={() => downloadBill(bill)}
-                      className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </button>
-                    <button
-                      onClick={() => viewBillDetails(bill)}
-                      className="flex items-center gap-2 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 transition-colors"
-                    >
-                      <Eye className="w-4 h-4" />
-                      View Details
-                    </button>
-                    {(getDisplayStatus(bill) === 'pending' || getDisplayStatus(bill) === 'overdue') && (
-                      <button
-                        onClick={() => initiatePayment(bill)}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
-                      >
-                        <CreditCard className="w-4 h-4" />
-                        Pay Now
-                      </button>
+                    {!isConsolidated ? (
+                      <>
+                        <button
+                          onClick={() => downloadBill(bill)}
+                          className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 hover:text-blue-800 transition-colors"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download
+                        </button>
+                        <button
+                          onClick={() => viewBillDetails(bill)}
+                          className="flex items-center gap-2 px-3 py-1 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View Details
+                        </button>
+                        {(getDisplayStatus(bill) === 'pending' || getDisplayStatus(bill) === 'overdue') && (
+                          <button
+                            onClick={() => initiatePayment(bill)}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors"
+                          >
+                            <CreditCard className="w-4 h-4" />
+                            Pay Now
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => viewBillDetails(bill)}
+                          className="flex items-center gap-2 px-3 py-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View Details
+                        </button>
+                        <span className="text-xs text-gray-500 italic">
+                          This bill was consolidated into the next billing cycle
+                        </span>
+                      </>
                     )}
                   </div>
                 </div>
