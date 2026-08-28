@@ -36,6 +36,8 @@ interface Customer {
   // Ledger Balance Fields
   total_debt?: number;
   totalDebt?: number;
+  overpayment?: number | string;
+  overPayment?: number | string;
   outstanding_balance?: number;
   outstandingBalance?: number;
   current_balance?: number;
@@ -46,28 +48,76 @@ interface Customer {
 
 // Safely maps backend keys (snake_case OR camelCase) to ensure the UI always has data
 const getCustomerData = (c: Customer) => {
-  // We prioritize total_debt here to ensure the full ledger debt is what shows on the UI
-  const balance = c.total_debt ?? c.totalDebt ?? c.outstanding_balance ?? c.outstandingBalance ?? c.current_balance ?? c.currentBalance ?? c.account_balance ?? c.accountBalance ?? 0;
-  const rawStatus = c.status || (c.is_active || c.isActive ? 'active' : 'inactive');
-  
+  const totalDebt = Number(
+    c.total_debt ??
+    c.totalDebt ??
+    0
+  );
+
+  const overpayment = Number(
+    c.overpayment ??
+    c.overPayment ??
+    0
+  );
+
+  const rawStatus =
+    c.status ||
+    (c.is_active || c.isActive ? 'active' : 'inactive');
+
   return {
     id: c.id,
-    fullName: c.full_name || c.fullName || c.name || 'Unknown',
-    accountNumber: c.account_number || c.accountNumber || 'N/A',
-    phone: c.phone || c.phone_number || c.phoneNumber || c.contact || 'N/A',
+
+    fullName:
+      c.full_name ||
+      c.fullName ||
+      c.name ||
+      'Unknown',
+
+    accountNumber:
+      c.account_number ||
+      c.accountNumber ||
+      'N/A',
+
+    phone:
+      c.phone ||
+      c.phone_number ||
+      c.phoneNumber ||
+      c.contact ||
+      'N/A',
+
     email: c.email || 'N/A',
+
     location: c.location || 'N/A',
+
     zone: c.zone || 'N/A',
-    customerType: c.customer_type || c.customerType || 'normal',
-    connectionDate: c.connection_date || c.connectionDate || new Date().toISOString(),
+
+    customerType:
+      c.customer_type ||
+      c.customerType ||
+      'normal',
+
+    connectionDate:
+      c.connection_date ||
+      c.connectionDate ||
+      new Date().toISOString(),
+
     status: rawStatus.toLowerCase(),
-    balance: Number(balance)
+
+    // Separate financial values
+    totalDebt,
+
+    overpayment,
+
+    // Net balance:
+    // positive = customer owes
+    // negative = customer has credit
+    balance: totalDebt > 0
+      ? totalDebt
+      : overpayment > 0
+        ? -overpayment
+        : 0
   };
 };
-// ---------------------------------------------------------------------------
-// Modals
-// ---------------------------------------------------------------------------
-
 const AdjustBalanceModal = ({ 
   customer, onClose, onSuccess 
 }: { 
@@ -516,21 +566,44 @@ const ViewCustomerModal = ({
             </p>
           </div>
           
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Outstanding Balance</label>
-            <p className={`text-sm font-semibold ${
-               cData.balance > 0 
-                 ? 'text-red-600' 
-                 : cData.balance < 0 
-                   ? 'text-green-600' 
-                   : 'text-gray-900'
-            }`}>
-              {cData.balance > 0 
-                 ? `Debt: KES ${cData.balance.toLocaleString()}` 
-                 : cData.balance < 0 
-                    ? `Overpaid: KES ${Math.abs(cData.balance).toLocaleString()}` 
-                    : 'KES 0'}
-            </p>
+          <div className="p-4 bg-gray-50 rounded-lg border">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Account Balance
+            </label>
+
+            <div className="space-y-2">
+
+              {cData.totalDebt > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">
+                    Outstanding Debt
+                  </span>
+
+                  <span className="text-sm font-semibold text-red-600">
+                    KES {cData.totalDebt.toLocaleString()}
+                  </span>
+                </div>
+              )}
+
+              {cData.overpayment > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">
+                    Overpayment / Credit
+                  </span>
+
+                  <span className="text-sm font-semibold text-green-600">
+                    KES {cData.overpayment.toLocaleString()}
+                  </span>
+                </div>
+              )}
+
+              {cData.totalDebt === 0 && cData.overpayment === 0 && (
+                <div className="text-sm font-semibold text-gray-600">
+                  Account is settled — KES 0.00
+                </div>
+              )}
+
+            </div>
           </div>
         </div>
         <div className="flex justify-end mt-6">
@@ -752,19 +825,31 @@ const CustomerManagement: React.FC = () => {
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`text-sm font-medium ${
-                        cData.balance > 0 
-                          ? 'text-red-600' 
-                          : cData.balance < 0 
-                            ? 'text-green-600' 
-                            : 'text-gray-500'
-                      }`}>
-                        {cData.balance > 0 
-                          ? `KES ${cData.balance.toLocaleString()}` 
-                          : cData.balance < 0 
-                            ? `Overpaid: KES ${Math.abs(cData.balance).toLocaleString()}`
-                            : 'KES 0'}
-                      </div>
+                      {cData.totalDebt > 0 ? (
+                        <div>
+                          <div className="text-sm font-semibold text-red-600">
+                            Debt: KES {cData.totalDebt.toLocaleString()}
+                          </div>
+                          {cData.overpayment > 0 && (
+                            <div className="text-xs text-green-600 mt-1">
+                              Credit: KES {cData.overpayment.toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      ) : cData.overpayment > 0 ? (
+                        <div>
+                          <div className="text-sm font-semibold text-green-600">
+                            Overpaid: KES {cData.overpayment.toLocaleString()}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Account Credit
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-medium text-gray-500">
+                          KES 0.00
+                        </span>
+                      )}
                     </td>
 
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">

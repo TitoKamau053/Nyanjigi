@@ -211,16 +211,53 @@ class Customer extends BaseModel {
       if (conditions.length > 0) {
         whereClause = `WHERE ${conditions.join(' AND ')}`;
       }
-
       const customersQuery = `
         SELECT
-          id, account_number, full_name, phone, email, location, zone,
-          meter_number, connection_date, is_active, created_at, customer_type,
-          (
-            ${Customer.getOutstandingBillsSubquery('customers.id')} +
+          id,
+          account_number,
+          full_name,
+          phone,
+          email,
+          location,
+          zone,
+          meter_number,
+          connection_date,
+          is_active,
+          created_at,
+          customer_type,
+
+          (${Customer.getOutstandingBillsSubquery('customers.id')} +
             ${Customer.getOutstandingFinesSubquery('customers.id')} +
-            COALESCE((SELECT SUM(amount_required - amount_paid) FROM contributions WHERE customer_id = customers.id AND status != 'completed'), 0)
-          ) AS total_debt
+            COALESCE(
+              (
+                SELECT SUM(amount_required - amount_paid)
+                FROM contributions
+                WHERE customer_id = customers.id
+                  AND status != 'completed'
+              ),
+              0
+            )
+          ) AS total_debt,
+
+          COALESCE(
+            (
+              SELECT SUM(
+                p.amount - COALESCE(pa.total_allocated, 0)
+              )
+              FROM payments p
+              LEFT JOIN (
+                SELECT
+                  payment_id,
+                  SUM(amount) AS total_allocated
+                FROM payment_allocations
+                GROUP BY payment_id
+              ) pa ON pa.payment_id = p.id
+              WHERE p.customer_id = customers.id
+                AND p.status = 'completed'
+            ),
+            0
+          ) AS overpayment
+
         FROM customers
         ${whereClause}
         ORDER BY created_at DESC
