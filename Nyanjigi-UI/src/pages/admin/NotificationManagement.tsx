@@ -128,7 +128,7 @@ const NotificationManagement: React.FC = () => {
   const fetchCustomers = async (page: number = 1) => {
     try {
       setLoading(true);
-      const response = await adminService.getCustomersForNotification({ page, limit: 100 });
+      const response = await adminService.getCustomersForNotification({ page, limit: 100, all: true });
       const data = response.data?.data?.customers || [];
       const pagination = response.data?.data?.pagination;
       
@@ -228,7 +228,7 @@ const fetchHistory = async () => {
   const searchCustomers = async (search: string, zone: string) => {
     try {
       setLoading(true);
-      const params: any = { page: 1, limit: 100 };
+      const params: any = { page: 1, limit: 100, all: true };
       if (search) params.search = search;
       if (zone) params.zone = zone;
       
@@ -471,9 +471,9 @@ const fetchHistory = async () => {
                   />
                   <span className="text-sm font-medium text-gray-700">Send to All Active Customers</span>
                 </label>
-                <p className="text-xs text-gray-600 mt-1">
+                {/* <p className="text-xs text-gray-600 mt-1">
                   {customers.length} active customers available
-                </p>
+                </p> */}
               </div>
 
             {!sendToAll && (
